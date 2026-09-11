@@ -28,3 +28,8 @@ error_log.txt
 Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Whisper models (too large for GitHub)
+whisper_bin/Release/ggml-*.bin
+whisper_bin/Release/*.bin
+whisper_bin/**/*.bin
