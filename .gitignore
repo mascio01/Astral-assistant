@@ -1,0 +1,30 @@
+﻿# Astral Assistant - .gitignore
+# Configurazioni e chiavi
+.env
+.env.local
+*.key
+*.pem
+*.crt
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Log
+error_log.txt
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/

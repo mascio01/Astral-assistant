@@ -1,0 +1,335 @@
+﻿# -*- coding: utf-8 -*-
+# astral.py - Entry point: REPL, comandi slash, ciclo conversazione
+import json
+import os
+import sys
+
+try:
+    import stt_integration
+except Exception as e:
+    stt_integration = None
+    _early_log("import stt_integration", e)
+
+from rich.panel import Panel
+from rich.markdown import Markdown
+from rich.markup import escape
+
+from core_io import _early_log, console, global_exception_handler, log_error
+from loop_detector import LoopDetector
+from memory_store import checkpoint_pull, checkpoint_save, init_db
+from history_store import (
+    CONFIG_FILE,
+    clear_persistent_history,
+    compact_history_with_summary,
+    get_history,
+    maybe_offload_tool_result,
+    save_persistent_history,
+)
+from llm_core import (
+    MODEL_CODE,
+    MODEL_CONVERSATION,
+    MODELS,
+    auto_repair,
+    call_with_dynamic_fallback,
+    get_current_model,
+    get_telemetry_enabled,
+    get_telemetry_stats,
+    print_telemetry,
+    repair_watchdog,
+    route_model,
+    set_current_model,
+    set_telemetry_enabled,
+)
+from tools_exec import execute_tool, tools
+try:
+    from prompt_toolkit import PromptSession
+    PROMPT_TOOLKIT_OK = True
+except Exception as e:
+    PromptSession = None
+    PROMPT_TOOLKIT_OK = False
+    _early_log("import prompt_toolkit", e)
+
+
+
+
+sys.excepthook = global_exception_handler
+
+
+
+voice_prompt_session = None  # lazy init: vedi _get_voice_prompt_session()
+
+def _get_voice_prompt_session():
+    """Crea il PromptSession al primo uso (lazy init: evita crash import senza TTY)."""
+    global voice_prompt_session, PROMPT_TOOLKIT_OK
+    if voice_prompt_session is None and PROMPT_TOOLKIT_OK:
+        try:
+            voice_prompt_session = PromptSession()
+        except Exception as e:
+            PROMPT_TOOLKIT_OK = False
+            _early_log("init PromptSession", e)
+    return voice_prompt_session
+
+def read_voice_input(text):
+    """Mostra la trascrizione in un campo gia compilato e modificabile."""
+    if _get_voice_prompt_session() is not None:
+        try:
+            return voice_prompt_session.prompt("Astral (Voce) > ", default=text).strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
+    return console.input("[bold dark_orange]Astral (Voce)[/] [bold gold1]>[/] ").strip()
+
+
+def main():
+    # Watchdog self-repair: gli errori nuovi vengono gestiti senza fermare il loop
+    try:
+        repair_watchdog()
+    except Exception:
+        pass
+    
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                if "models" in cfg:
+                    MODELS.update(cfg["models"])
+                if "current_model" in cfg and cfg["current_model"]:
+                    val = cfg["current_model"]
+                    set_current_model(MODELS.get(val, val))
+        except Exception:
+            pass
+
+    console.print(Panel(
+        f"[bold grey100]Astral CLI Assistant[/] (Dynamic Token-Optimized Engine)\n\n"
+        f"  - [bold]Routing Dinamico:[/bold] [bold dark_orange]Auto[/] ([gold1]DeepSeek[/] Chat <-> [dark_orange]GLM[/] Codice)\n"
+        f"  - [bold]Modello Conversazioni:[/bold] [dim]{MODEL_CONVERSATION}[/dim]\n"
+        f"  - [bold]Modello Codice / Sviluppo:[/bold] [dim]{MODEL_CODE}[/dim]\n"
+        f"  - [bold]Stato Attuale:[/bold] [bold orange1]{get_current_model()}[/]\n"
+        f"  - [bold]Comandi:[/bold] /model <auto|deepseek|glm|sol> | /telemetry | /clear | /repair | /voice | exit",
+        border_style="orange1", padding=(0, 2)
+    ))
+
+    messages = get_history()
+    loop_det = LoopDetector()
+    session_first_msg = True
+
+    while True:
+        try:
+            cm = get_current_model()
+            prompt_label = "Astral (Auto)" if cm == "auto" else cm
+            user_input = console.input(f"\n[bold dodger_blue1]{prompt_label}[/] [bold spring_green1]>[/] ").strip()
+            if not user_input:
+                continue
+
+            if user_input.lower() == '/voice':
+                if stt_integration is None or not stt_integration.is_available():
+                    console.print("[bold orange_red1]STT non disponibile. Dettagli in error_log.txt.[/]")
+                    continue
+                console.print("[dim]Ascolto... parla ora (max 60s, si ferma dopo 2.5s di silenzio)[/dim]")
+                stt_text = stt_integration.transcribe(max_seconds=60)
+                if not stt_text:
+                    log_error("voice/transcribe", "Trascrizione vuota: nessun parlato riconosciuto")
+                    console.print("[dim]Nessun discorso rilevato. Riprova.[/dim]")
+                    continue
+                # La trascrizione viene caricata direttamente nel campo di input.
+                # L'utente puo modificarla liberamente con tastiera prima dell'invio.
+                user_input = read_voice_input(stt_text)
+                if not user_input:
+                    continue
+            if user_input.lower() in ['exit', 'quit']:
+                checkpoint_save(messages)
+                save_persistent_history(messages)
+                console.print("[dim]Sessione salvata. Arrivederci![/dim]")
+                break
+            
+            lower_input = user_input.lower()
+            if lower_input == '/clear':
+                checkpoint_save(messages)
+                clear_persistent_history()
+                messages = []
+                session_first_msg = True
+                continue
+
+            if lower_input == '/repair':
+                console.print("[dim][*] Avvio auto-riparazione...[/dim]")
+                auto_repair()
+                continue
+
+            if lower_input == '/telemetry':
+                new_tel = not get_telemetry_enabled()
+                set_telemetry_enabled(new_tel)
+                state = "[bold spring_green1]ATTIVA[/]" if new_tel else "[bold orange_red1]DISATTIVA[/]"
+                console.print(f"[dim][*] Telemetria {state}[/dim]")
+                continue
+
+            if lower_input == "/stats":
+                stats = get_telemetry_stats()
+                console.print(stats)
+                continue
+
+            if lower_input.startswith('/model '):
+                target = lower_input.split(maxsplit=1)[1].strip()
+                if target in MODELS:
+                    set_current_model(MODELS[target])
+                else:
+                    set_current_model(target)
+                
+                try:
+                    cfg_data = {}
+                    if os.path.exists(CONFIG_FILE):
+                        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                            cfg_data = json.load(f)
+                    cfg_data["current_model"] = get_current_model()
+                    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                        json.dump(cfg_data, f, indent=4)
+                except Exception:
+                    pass
+                console.print(f"[dim][*] Modello impostato a [bold dark_orange]{get_current_model()}[/][/dim]")
+                continue
+
+            # Routing dinamico: DeepSeek per conversazioni, Qwen per codice
+            active_model = route_model(user_input)
+            if get_current_model() == "auto":
+                if active_model == MODEL_CODE:
+                    console.print(f"[dim][*] Riconosciuta richiesta Codice -> Routing: [dark_orange]{MODEL_CODE}[/][/dim]")
+                else:
+                    console.print(f"[dim][*] Riconosciuta richiesta Conversazione -> Routing: [gold1]{MODEL_CONVERSATION}[/][/dim]")
+
+            # Loop detection (token-optimizer): avvisa se richieste molto simili si ripetono
+            if loop_det.check(user_input):
+                console.print("[bold orange_red1][!] Possibile loop rilevato: richieste molto simili ripetute. Considera /clear o riformula.[/]")
+                loop_det.strike = 0
+            # Resume checkpoint: al primo messaggio della sessione, inietta il checkpoint precedente piu' rilevante
+            if session_first_msg and not messages:
+                cp = checkpoint_pull(user_input)
+                if cp:
+                    console.print("[dim][*] Checkpoint sessione precedente recuperato (contesto iniettato).[/dim]")
+                    messages.append({"role": "user", "content": cp})
+                session_first_msg = False
+            messages.append({"role": "user", "content": user_input})
+            
+            # Live Sliding Window: mantiene il contesto leggero (< 6 turni)
+            messages = compact_history_with_summary(messages)
+
+            try:
+                response, used_model = call_with_dynamic_fallback(messages, tools_schema=tools, primary_model=active_model)
+            except Exception as e:
+                console.print(f"[orange_red1]{escape(str(e))}[/red]")
+                if messages and messages[-1].get("role") == "user":
+                    messages.pop()
+                continue
+
+            print_telemetry(response, used_model)
+            msg = response.choices[0].message
+
+            # Gestione tool calls senza limite rigido: continua fino alla risposta finale del modello
+            tool_followup_error = None
+            while msg.tool_calls:
+                if msg.content:
+                    console.print(f"[dim]{msg.content.strip()}[/dim]")
+                # Strutturiamo il messaggio assistant con i tool calls
+                asst_tool_msg = {
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        } for tc in msg.tool_calls
+                    ]
+                }
+                messages.append(asst_tool_msg)
+
+                for tool_call in msg.tool_calls:
+                    fn_name = tool_call.function.name
+                    try:
+                        fn_args = json.loads(tool_call.function.arguments)
+                    except Exception:
+                        fn_args = {}
+                    
+                    console.print(f" [dim]> Esecuzione Tool: [gold1]{fn_name}[/][/dim]")
+                    
+                    sys_dirs = ["c:\\windows", "system32", "program files"]
+                    
+                    if fn_name == "run_powershell_cmd":
+                        cmd = fn_args.get("command", "")
+                        if any(x in cmd.lower() for x in sys_dirs):
+                            confirm = console.input(f"[bold orange_red1]Confermi l'esecuzione di '{cmd}' su sistema protetto? (s/N): [/]")
+                            if confirm.lower() != 's':
+                                result = {"error": "Annullato dall'utente."}
+                            else:
+                                result = execute_tool(fn_name, fn_args)
+                        else:
+                            result = execute_tool(fn_name, fn_args)
+                    elif fn_name == "move_to_trash":
+                        path = fn_args.get("path", "")
+                        if any(x in path.lower() for x in sys_dirs):
+                            confirm = console.input(f"[bold orange_red1]Confermi eliminazione protetta di '{path}'? (s/N): [/]")
+                            if confirm.lower() != 's':
+                                result = {"error": "Annullato dall'utente."}
+                            else:
+                                result = execute_tool(fn_name, fn_args)
+                        else:
+                            result = execute_tool(fn_name, fn_args)
+                    else:
+                        result = execute_tool(fn_name, fn_args)
+                        
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": maybe_offload_tool_result(json.dumps(result), fn_name)
+                    })
+                
+                try:
+                    response, _ = call_with_dynamic_fallback(messages, tools_schema=tools, primary_model=active_model)
+                    print_telemetry(response, active_model)
+                    msg = response.choices[0].message
+                except Exception as e:
+                    tool_followup_error = str(e)
+                    console.print(f"[orange_red1]{tool_followup_error}[/]")
+                    break
+
+
+            final_text = (msg.content or "").strip()
+            if not final_text:
+                # Fallback: alcuni modelli mettono il testo in reasoning_content o tornano vuoti
+                final_text = (getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or "").strip()
+            if not final_text and tool_followup_error:
+                final_text = (
+                    "La fase strumenti e' terminata, ma non e' stato possibile generare "
+                    f"il riepilogo finale: {tool_followup_error}"
+                )
+            if final_text:
+                console.print(Markdown(final_text))
+                messages.append({"role": "assistant", "content": final_text})
+            else:
+                console.print("[dim](Nessuna risposta testuale dal modello - riformula o riprova.)[/dim]")
+
+            # Salva periodicamente lo storico per non perderlo in caso di chiusura imprevista
+            save_persistent_history(messages)
+
+        except KeyboardInterrupt:
+            checkpoint_save(messages)
+            save_persistent_history(messages)
+            console.print("\n[dim]Uscita in corso... Storico salvato.[/dim]")
+            break
+        except Exception as e:
+            console.print(f"[bold orange_red1][!] Errore:[/] {escape(str(e))}")
+
+
+if __name__ == "__main__":
+    init_db()
+    if "--repair" in sys.argv:
+        try:
+            auto_repair()
+        except Exception as _rep_e:
+            try:
+                log_error("auto_repair_cli", _rep_e)
+            except Exception:
+                pass
+    else:
+        main()
+

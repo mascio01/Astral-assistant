@@ -1,0 +1,898 @@
+﻿# -*- coding: utf-8 -*-
+def _early_log(context, exc):
+    """Fallback di logging per errori di import prima che log_error sia definita."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "error_log.txt"), "a", encoding="utf-8") as lf:
+            lf.write("[%s] EARLY ERROR (%s): %s\n%s\n" % (
+                __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                context, exc, __import__("traceback").format_exc()))
+    except Exception:
+        pass
+
+try:
+    import stt_integration
+except Exception as e:
+    stt_integration = None
+    _early_log("import stt_integration", e)
+import os
+import sys
+import re
+import subprocess
+import tempfile
+import json
+import time
+from datetime import datetime
+from openai import OpenAI
+import traceback
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
+try:
+    from prompt_toolkit import PromptSession
+    PROMPT_TOOLKIT_OK = True
+except Exception as e:
+    PromptSession = None
+    PROMPT_TOOLKIT_OK = False
+    _early_log("import prompt_toolkit", e)
+
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(BASE_DIR, "error_log.txt")
+
+def log_error(context, exc):
+    """Log universale: data/ora + contesto + codice errore/traceback su error_log.txt."""
+    try:
+        code = getattr(exc, "code", None)
+        code_str = f" [codice: {code}]" if code is not None else ""
+        with open(LOG_FILE, "a", encoding="utf-8") as lf:
+            lf.write("[%s] ERROR (%s)%s: %s\n%s%s\n" % (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), context, code_str, exc,
+                traceback.format_exc(), "-" * 50))
+    except Exception:
+        pass
+
+def global_exception_handler(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    log_file = os.path.join(BASE_DIR, "error_log.txt")
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERROR:\n{error_msg}\n{'-'*50}\n")
+    print("\n[!] Errore salvato in error_log.txt per l'autoriparazione.")
+
+sys.excepthook = global_exception_handler
+
+console = Console()
+voice_prompt_session = PromptSession() if PROMPT_TOOLKIT_OK else None
+
+def read_voice_input(text):
+    """Mostra la trascrizione in un campo gia compilato e modificabile."""
+    if voice_prompt_session is not None:
+        try:
+            return voice_prompt_session.prompt("Astral (Voce) > ", default=text).strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
+    return console.input("[bold dodger_blue1]Astral (Voce)[/] [bold spring_green1]>[/] ").strip()
+
+def load_api_key():
+    """Legge la chiave dall'ambiente, con fallback al registro utente Windows."""
+    key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if key or os.name != "nt":
+        return key
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as env_key:
+            return str(winreg.QueryValueEx(env_key, "OPENROUTER_API_KEY")[0]).strip()
+    except (FileNotFoundError, OSError):
+        return ""
+
+API_KEY = load_api_key()
+if not API_KEY:
+    console.print("[bold orange_red1][!] Variabile OPENROUTER_API_KEY non configurata.[/]")
+    raise SystemExit(1)
+HISTORY_FILE = os.path.join(BASE_DIR, "chat_history.json")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+MAX_DAYS_HISTORY = 14
+MAX_HISTORY_WINDOW_TURNS = 6
+telemetry_enabled = True
+
+# Modelli dedicati al routing dinamico intelligente (tutti verificati e operativi)
+MODEL_CONVERSATION = "deepseek/deepseek-v4-flash"
+MODEL_CODE = "z-ai/glm-5.3-flash"
+
+MODELS = {
+    "deepseek": "deepseek/deepseek-v4-flash",
+    "1": "deepseek/deepseek-v4-flash",
+    "deepseek-flash": "deepseek/deepseek-v4-flash",
+    "z-ai": "z-ai/glm-5.3-flash",
+    "sol": "openai/gpt-5.6-sol",
+    "5.6": "openai/gpt-5.6-sol",
+    "gpt-5.6": "openai/gpt-5.6-sol",
+    "auto": "auto"
+}
+
+DYNAMIC_MODELS_POOL = [
+    "deepseek/deepseek-v4-flash",
+    "z-ai/glm-5.3-flash"
+]
+
+current_model = "auto"
+client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=API_KEY)
+
+SYSTEM_INSTRUCTION = (
+    "HOME: La cartella principale del progetto e' C:\\Users\\masci\\Astral; il file madre attualmente in esecuzione e' astral.py (percorso completo: C:\\Users\\masci\\Astral\\astral.py).\n"
+    "ROLE: Assistente IA integrato in Windows 11 con controllo file e PowerShell.\n"
+    "SCOPO: Essere un assistente Windows 11 efficiente e migliorare attivamente se stesso e il proprio codice sorgente.\n"
+    "DIRECTIVES:\n"
+    "- AUTONOMY: Esegui azioni ordinarie SENZA chiedere conferma per velocizzare.\n"
+    "- SELF-IMPROVEMENT: Ottimizza, rifattorizza e correggi autonomamente il codice sorgente dell'applicazione quando opportuno o richiesto.\n"
+    "- ONE-SHOT: Accorpa piu azioni in un singolo script PowerShell per minimizzare le chiamate e risparmiare token.\n"
+    "- SAFETY: Chiedi conferma ESPLICITA SOLO se l'operazione coinvolge file/cartelle di sistema (es. C:\\Windows, System32, Program Files).\n"
+    "- TOKEN SAVING: L'output dei tool e' gia' troncato automaticamente con caps standard (20 errori, 10 warning, 20 righe lista, 50 inventario). NON serve usare Select-Object -First. Se ti serve il dato completo, usa il tool recall con l'hash dell'hint [full output: recall <hash>] invece di rieseguire il comando.\n"
+    "- OUTPUT FORMAT: Risposte sintetiche, chiare e prive di ridondanze."
+)
+
+# --- Recall Store (ispirato a rtk retriever) ---
+RECALL_DB = os.path.join(BASE_DIR, "recall.db")
+TELEMETRY_DB = os.path.join(BASE_DIR, "telemetry.db")
+RECALL_MAX_ENTRIES = 200
+RECALL_RETENTION_DAYS = 30
+RECALL_MIN_BYTES = 500
+
+# --- Caps standardizzati (ispirati a rtk) ---
+CAP_ERRORS = 20      # max righe errore mostrate
+CAP_WARNINGS = 10    # max righe warning mostrate
+CAP_LISTS = 20       # max righe generiche/lista
+CAP_INVENTORY = 50   # max righe inventario (percorsi file)
+
+_RE_ERR = re.compile(r"\b(error|errore|exception|eccezione|failed|fallito|fatal|critico)\b", re.I)
+_RE_WARN = re.compile(r"\b(warn|warning|avviso|attenzione|deprecated)\b", re.I)
+
+def cap_output(text, inventory=False):
+    """Trunca l'output secondo i caps standard, preservando l'ordine delle righe.
+    Ritorna (testo_capito, dict_omessi)."""
+    if not text:
+        return text, {}
+    cap_other = CAP_INVENTORY if inventory else CAP_LISTS
+    out, omitted = [], {}
+    n_err = n_warn = n_other = 0
+    for line in text.splitlines():
+        if _RE_ERR.search(line):
+            if n_err < CAP_ERRORS:
+                out.append(line)
+            else:
+                omitted["errori"] = omitted.get("errori", 0) + 1
+            n_err += 1
+        elif _RE_WARN.search(line):
+            if n_warn < CAP_WARNINGS:
+                out.append(line)
+            else:
+                omitted["warning"] = omitted.get("warning", 0) + 1
+            n_warn += 1
+        else:
+            if n_other < cap_other:
+                out.append(line)
+            else:
+                omitted["righe"] = omitted.get("righe", 0) + 1
+            n_other += 1
+    if omitted:
+        out.append("... [caps: %s]" % ", ".join("+%d %s omessi" % (v, k) for k, v in omitted.items()))
+    return "\n".join(out), omitted
+
+def never_worse(original, emitted):
+    """Guard never_worse: non emettere mai piu' caratteri dell'output grezzo.
+    Se la versione elaborata (truncata/riassunta) e' piu' lunga dell'originale, usa l'originale."""
+    if original is None:
+        return emitted
+    if not emitted or len(emitted) >= len(original):
+        return original
+    return emitted
+
+def recall_save(output, force=False):
+    """Salva output completo (gzip) in SQLite content-addressed. Ritorna hash o None.
+    Con force=True salva anche sotto la soglia minima (es. errori di comandi falliti)."""
+    try:
+        import sqlite3, gzip, hashlib
+        raw = output.encode("utf-8", errors="replace")
+        if len(raw) < RECALL_MIN_BYTES and not force:
+            return None
+        h = hashlib.sha1(raw).hexdigest()[:12]
+        blob = gzip.compress(raw)
+        conn = sqlite3.connect(RECALL_DB)
+        conn.execute("CREATE TABLE IF NOT EXISTS recall (hash TEXT PRIMARY KEY, data BLOB, ts REAL, preview TEXT)")
+        conn.execute("INSERT OR REPLACE INTO recall VALUES (?,?,?,?)", (h, blob, time.time(), output[:200]))
+        conn.execute("DELETE FROM recall WHERE hash NOT IN (SELECT hash FROM recall ORDER BY ts DESC LIMIT ?)", (RECALL_MAX_ENTRIES,))
+        conn.execute("DELETE FROM recall WHERE ts < ?", (time.time() - RECALL_RETENTION_DAYS * 86400,))
+        conn.commit()
+        conn.close()
+        return h
+    except Exception as e:
+        log_error("recall_save", e)
+        return None
+
+def recall_get(h, full=False):
+    """Recupera output salvato: primi 2000 char o completo con full=True."""
+    try:
+        import sqlite3, gzip
+        conn = sqlite3.connect(RECALL_DB)
+        row = conn.execute("SELECT data FROM recall WHERE hash=?", (h,)).fetchone()
+        conn.close()
+        if not row:
+            return {"error": "Hash %s non trovato (scaduto o inesistente). Usa mode='list'." % h}
+        data = gzip.decompress(row[0]).decode("utf-8", errors="replace")
+        if full:
+            return {"output": data}
+        if len(data) > 2000:
+            return {"output": data[:2000] + "\n... [+%d caratteri: richiama recall con full=true]" % (len(data) - 2000)}
+        return {"output": data}
+    except Exception as e:
+        return {"error": str(e)}
+
+def recall_list(limit=15):
+    try:
+        import sqlite3
+        conn = sqlite3.connect(RECALL_DB)
+        rows = conn.execute("SELECT hash, preview, datetime(ts,'unixepoch','localtime') FROM recall ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
+        conn.close()
+        return {"entries": [{"hash": r[0], "preview": r[1][:80], "saved": r[2]} for r in rows]}
+    except Exception as e:
+        return {"error": str(e)}
+
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scan_storage",
+            "description": "Scansiona una cartella specifica o una lista di cartelle per individuare file pesanti o file temporanei.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_path": {"type": "string", "description": "Il percorso della cartella da scansionare"},
+                    "min_size_mb": {"type": "number", "description": "Dimensione minima in MB"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_to_trash",
+            "description": "Sposta un file o una cartella specifica nel cestino previa conferma.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Il percorso completo del file o cartella"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_powershell_cmd",
+            "description": "Esegue un comando PowerShell in locale sul sistema.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Il comando PowerShell da eseguire"}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recall",
+            "description": "Recupera l'output completo di un comando precedentemente troncato (hint: [full output: recall <hash>]). Con mode='list' elenca le entry salvate.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hash": {"type": "string", "description": "Hash dell'output da recuperare"},
+                    "full": {"type": "boolean", "description": "Se true restituisce l'output completo senza troncamento"},
+                    "mode": {"type": "string", "description": "'list' per elencare le entry salvate"}
+                }
+            }
+        }
+    }
+]
+
+def is_code_query(text: str) -> bool:
+    """Rileva se il testo richiede elaborazione di codice, scripting o query tecnica."""
+    if any(marker in text for marker in ["`", "def ", "class ", "import ", "function", "=>", "const ", "var ", "let ", "public static", "#include"]):
+        return True
+    
+    code_keywords = [
+        "codice", "script", "programma", "sviluppa", "funzione", "algoritmo",
+        "python", "powershell", "bash", "cmd", "batch", ".bat", ".ps1", ".py", ".exe",
+        "javascript", "typescript", "html", "css", "sql", "c#", "c++", "rust", "golang",
+        "debug", "bug", "errore", "exception", "traceback", "syntax", "refactor",
+        "compila", "build", "pyinstaller", "pip", "npm", "git", "regex", "json",
+        "endpoint", "api rest", "query", "database", "terminale", "powershell", "classe"
+    ]
+    lower = text.lower()
+    for kw in code_keywords:
+        if re.search(r'\b' + re.escape(kw) + r'\b', lower):
+            return True
+    return False
+
+def route_model(user_input: str) -> str:
+    """Seleziona dinamicamente il modello ottimale in base al tipo di richiesta."""
+    if current_model != "auto":
+        return current_model
+    if is_code_query(user_input):
+        return MODEL_CODE
+    return MODEL_CONVERSATION
+
+def save_telemetry(model_name, prompt_t, resp_t, total_t):
+    """Salva telemetria persistente divisa per IA (modello)."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(TELEMETRY_DB)
+        conn.execute("CREATE TABLE IF NOT EXISTS telemetry ("
+            "model_name TEXT, ts REAL, prompt_tokens INT, completion_tokens INT, total_tokens INT)")
+        conn.execute("INSERT INTO telemetry VALUES (?,?,?,?,?)",
+            (model_name, time.time(), prompt_t, resp_t, total_t))
+        # Retention: cancella dati piu vecchi di 90 giorni
+        conn.execute("DELETE FROM telemetry WHERE ts < ?", (time.time() - 90 * 86400,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log_error("save_telemetry", e)
+
+def print_telemetry(response, model_name=None):
+    global telemetry_enabled
+    if not telemetry_enabled or not response:
+        return
+    usage = getattr(response, "usage", None)
+    if usage:
+        prompt_t = getattr(usage, "prompt_tokens", 0) or 0
+        resp_t = getattr(usage, "completion_tokens", 0) or 0
+        total_t = getattr(usage, "total_tokens", 0) or (prompt_t + resp_t)
+        console.print(f"[dim italic]>> Telemetria Token | Input: [spring_green1]{prompt_t}[/] | Output: [gold1]{resp_t}[/] | Totale turno: [bold grey100]{total_t}[/][/dim italic]")
+        if model_name:
+            save_telemetry(model_name, prompt_t, resp_t, total_t)
+
+
+def get_telemetry_stats(model_filter=None, days=30):
+    """Restituisce statistiche telemetria aggregate per modello."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(TELEMETRY_DB)
+        cutoff = time.time() - days * 86400
+        if model_filter:
+            rows = conn.execute("SELECT model_name, COUNT(*), SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens) FROM telemetry WHERE ts > ? AND model_name = ? GROUP BY model_name ORDER BY SUM(total_tokens) DESC", (cutoff, model_filter)).fetchall()
+        else:
+            rows = conn.execute("SELECT model_name, COUNT(*), SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens) FROM telemetry WHERE ts > ? GROUP BY model_name ORDER BY SUM(total_tokens) DESC", (cutoff,)).fetchall()
+        conn.close()
+        if not rows:
+            return "Nessun dato telemetria disponibile."
+        lines = ["📊 Statistiche telemetria (ultimi %d giorni):" % days]
+        for r in rows:
+            model, count, p_in, p_out, p_total = r
+            avg_total = p_total // count if count else 0
+            lines.append(f"  [{model}] {count} chiamate | Input: {p_in} | Output: {p_out} | Totale: {p_total} token | Media/turno: {avg_total}")
+        return "\\n".join(lines)
+    except Exception as e:
+        log_error("get_telemetry_stats", e)
+        return "Errore nel recupero statistiche: %s" % e
+
+def execute_tool(name, args):
+    if not isinstance(args, dict):
+        args = {}
+    if name == "scan_storage":
+        folder_path = args.get("folder_path")
+        min_size = args.get("min_size_mb", 50)
+        paths_to_check = [folder_path] if folder_path else [
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/AppData/Local/Temp")
+        ]
+        results = []
+        for p in paths_to_check:
+            if not os.path.exists(p):
+                continue
+            for root, _, files in os.walk(p):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        sz = os.path.getsize(fp) / (1024 * 1024)
+                        if sz >= min_size:
+                            results.append((fp, sz))
+                    except Exception as e:
+                        log_error("scan_storage/getsize", e)
+        results.sort(key=lambda x: x[1], reverse=True)
+        formatted_results = [f"{fp} ({sz:.2f} MB)" for fp, sz in results[:10]]
+        payload = {"found_items": formatted_results, "count": len(results)}
+        if len(results) > 10:
+            full_list = "\n".join(f"{fp} ({sz:.2f} MB)" for fp, sz in results)
+            rh = recall_save(full_list)
+            if rh:
+                payload["full_output_hint"] = f"recall {rh}"
+        return payload
+
+    elif name == "move_to_trash":
+        path = args.get("path")
+        if not path or not os.path.exists(path):
+            return {"error": "Percorso non valido o inesistente."}
+        if os.path.isdir(path):
+            ps_cmd = f"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('{path}', 'OnlyErrorDialogs', 'SendToRecycleBin')"
+        else:
+            ps_cmd = f"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{path}', 'OnlyErrorDialogs', 'SendToRecycleBin')"
+        try:
+            res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + ps_cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+            if res.returncode == 0:
+                return {"status": "success", "message": f"Elemento {path} spostato nel cestino."}
+            else:
+                return {"error": res.stderr.strip()}
+        except Exception as e:
+            return {"error": str(e)}
+
+    elif name == "run_powershell_cmd":
+        cmd = args.get("command")
+        try:
+            result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+            raw_out = result.stdout.strip()
+            raw_err = result.stderr.strip()
+            out, _omitted = cap_output(raw_out)
+            err, _ = cap_output(raw_err)
+            max_chars = 4000
+            if len(out) > max_chars:
+                rtk_exe = os.path.join(BASE_DIR, "rtk", "rtk.exe")
+                if os.path.exists(rtk_exe):
+                    try:
+                        # rtk passa il comando a cmd.exe: per evitare problemi di quoting/pipe
+                        # scriviamo il comando PS in un file temporaneo ed eseguiamo con -File
+                        fd, tmp_ps1 = tempfile.mkstemp(suffix=".ps1")
+                        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+                            f.write(cmd)
+                        rtk_res = subprocess.run([rtk_exe, "summary", "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmp_ps1], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=35)
+                        os.unlink(tmp_ps1)
+                        if rtk_res.returncode == 0 and rtk_res.stdout.strip():
+                            # Ibrido: testa dell'output (dati reali) + riassunto RTK (contestuale)
+                            orig_len = len(out)
+                            head = out[:2000]
+                            out = head + f"\n... [Output completo di {orig_len} caratteri troncato. RTK summary:]\n" + rtk_res.stdout.strip()[:1500]
+                    except Exception:
+                        pass
+                if len(out) > max_chars:
+                    out = out[:max_chars] + f"\n... [Output PowerShell troncato a {max_chars} caratteri per risparmio token]"
+            if len(err) > max_chars:
+                err = err[:max_chars] + f"\n... [Errore PowerShell troncato a {max_chars} caratteri]"
+            # Guard never_worse: non emettere mai piu' dell'output grezzo
+            out = never_worse(raw_out, out)
+            err = never_worse(raw_err, err)
+            # Recall store: salva l'output completo se troncato o se il comando e' fallito
+            try:
+                if len(result.stdout) > max_chars or result.returncode != 0:
+                    rh = recall_save(result.stdout + "\n[stderr]\n" + result.stderr, force=(result.returncode != 0))
+                    if rh:
+                        hint = f"\n[full output: recall {rh}]"
+                        if out.strip():
+                            out += hint
+                        else:
+                            err += hint  # stdout vuoto: l'hint deve restare visibile al modello
+            except Exception:
+                pass
+            return {"stdout": out, "stderr": err, "exit_code": result.returncode}
+        except subprocess.TimeoutExpired:
+            return {"error": "Timeout del comando dopo 30 secondi."}
+        except Exception as e:
+            return {"error": str(e)}
+    elif name == "recall":
+        if args.get("mode") == "list":
+            return recall_list()
+        h = args.get("hash")
+        if not h:
+            return {"error": "Specificare hash oppure mode='list'."}
+        return recall_get(h, bool(args.get("full")))
+    return {"error": "Tool sconosciuto"}
+
+def get_history():
+    """Carica la cronologia recente comprimendo i vecchi messaggi a max 400 caratteri per risparmiare token."""
+    try:
+        if not os.path.exists(HISTORY_FILE):
+            return []
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        now = time.time()
+        valid = [e for e in data if (now - e.get("timestamp", now)) < (MAX_DAYS_HISTORY * 86400)]
+        
+        hist = []
+        for e in valid[-MAX_HISTORY_WINDOW_TURNS:]:
+            text = e.get("text", "")
+            if len(text) > 1500:
+                text = text[:1500] + " ...[troncato per risparmio token]"
+            hist.append({"role": e.get("role", "user"), "content": text})
+        return hist
+    except Exception as e:
+        log_error("load_history", e)
+        return []
+
+def save_persistent_history(messages):
+    """Salva fino a 20 messaggi utente/assistente nello storico JSON."""
+    try:
+        now = time.time()
+        to_save = []
+        for m in messages:
+            if isinstance(m, dict):
+                role = m.get("role")
+                content = m.get("content")
+                ts = m.get("timestamp", now)
+            else:
+                role = getattr(m, "role", None)
+                content = getattr(m, "content", None)
+                ts = now
+            if role in ["user", "assistant"] and content:
+                to_save.append({"role": role, "text": content, "timestamp": ts})
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(to_save[-20:], f, indent=4)
+    except Exception as e:
+        log_error("save_persistent_history", e)
+
+def clear_persistent_history():
+    if os.path.exists(HISTORY_FILE):
+        os.remove(HISTORY_FILE)
+    console.print("[dim][*] Memoria azzerata.[/dim]")
+
+# --- Nanobot-inspired: tool result offload + summary checkpoint ---
+TOOL_RESULT_OFFLOAD_CHARS = 2000   # soglia offload risultati tool in history
+SUMMARY_CHECKPOINT_CHARS = 4000    # soglia riassunto turni vecchi
+
+def maybe_offload_tool_result(content, tool_name=""):
+    """Se il risultato tool e' grande, lo salva in recall e mette un placeholder
+    con hash in history (ispirato a nanobot context_governance). Il modello puo'
+    recuperare il contenuto completo con recall_get(h)."""
+    try:
+        if len(content) <= TOOL_RESULT_OFFLOAD_CHARS:
+            return content
+        h = recall_save(content)
+        if not h:
+            return content
+        return (f"[Output completo ({len(content)} caratteri) salvato in recall store. "
+                f"Hash: {h}. Usa recall_get('{h}') per recuperarlo se necessario. "
+                f"Preview: {content[:300]}]")
+    except Exception as e:
+        log_error("maybe_offload_tool_result", e)
+        return content
+
+def compact_history_with_summary(messages):
+    """Summary checkpoint (ispirato a nanobot autocompact): invece di buttare i turni
+    vecchi, genera un checkpoint testuale che resta nel contesto."""
+    try:
+        user_asst = [m for m in messages if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+        if len(user_asst) <= MAX_HISTORY_WINDOW_TURNS:
+            return messages
+        old = user_asst[:-MAX_HISTORY_WINDOW_TURNS]
+        parts = []
+        for m in old:
+            role = "U" if m.get("role") == "user" else "A"
+            txt = (m.get("content") or "").strip()
+            if txt:
+                parts.append(f"{role}: {txt[:200]}")
+        if not parts:
+            return prune_messages(messages, max_turns=MAX_HISTORY_WINDOW_TURNS)
+        checkpoint = "[CHECKPOINT CONTESTO - turni precedenti compressi]\n" + "\n".join(parts[-8:])
+        sys_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"]
+        recent = user_asst[-MAX_HISTORY_WINDOW_TURNS:]
+        return sys_msgs + [{"role": "user", "content": checkpoint}] + recent
+    except Exception as e:
+        log_error("compact_history_with_summary", e)
+        return prune_messages(messages, max_turns=MAX_HISTORY_WINDOW_TURNS)
+
+def prune_messages(messages, max_turns=6):
+    """Mantiene la sliding window in memoria a max_turns scambi per evitare l'accumulo di token."""
+    user_asst_count = sum(1 for m in messages if isinstance(m, dict) and m.get("role") in ["user", "assistant"])
+    if user_asst_count <= max_turns:
+        return messages
+    
+    # Rimuoviamo dal principio fino a rientrare nel limite, preservando la coerenza
+    while len(messages) > 0:
+        count = sum(1 for m in messages if isinstance(m, dict) and m.get("role") in ["user", "assistant"])
+        if count <= max_turns:
+            break
+        messages.pop(0)
+    
+    # Se il primo messaggio   rimasto un 'tool' orfano, rimuovilo
+    while len(messages) > 0 and isinstance(messages[0], dict) and messages[0].get("role") == "tool":
+        messages.pop(0)
+    return messages
+
+def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
+    """
+    Esegue la chiamata partendo dal modello target (DeepSeek per chat).
+    Se incontra errori o rate limit, itera dinamicamente attraverso gli altri modelli del pool.
+    """
+    if not primary_model:
+        primary_model = MODEL_CONVERSATION
+    
+    models_to_try = [primary_model] + [m for m in DYNAMIC_MODELS_POOL if m != primary_model]
+    last_error = ""
+
+    # Include sempre il System Prompt per definire istruzioni, ruoli e limiti
+    payload_messages = [{"role": "system", "content": SYSTEM_INSTRUCTION}] + messages
+
+    for attempt_model in models_to_try:
+        try:
+            with console.status(f"[bold dodger_blue1]Elaborazione con {attempt_model}...[/]", spinner="dots"):
+                kwargs = {
+                    "model": attempt_model,
+                    "messages": payload_messages,
+                }
+                extra_params = {}
+                model_lower = attempt_model.lower()
+                if not any(x in model_lower for x in ["gpt-4o-mini", "deepseek-chat", "claude-sonnet"]):
+                    extra_params["reasoning_effort"] = "high"
+                    extra_params["temperature"] = 0.3
+                    extra_params["top_p"] = 0.85
+                kwargs.update(extra_params)
+                if tools_schema:
+                    kwargs["tools"] = tools_schema
+                try:
+                    response = client.chat.completions.create(**kwargs)
+                except Exception as e_:
+                    err_str = str(e_).lower()
+                    if extra_params and any(w in err_str for w in ["reasoning_effort","temperature","top_p","not supported","unknown parameter","invalid parameter","bad request"]):
+                        console.print(f"[dim][*] {attempt_model} non supporta parametri avanzati. Riprovo senza...[/dim]")
+                        kwargs.pop("reasoning_effort", None)
+                        kwargs.pop("temperature", None)
+                        kwargs.pop("top_p", None)
+                        response = client.chat.completions.create(**kwargs)
+                    else:
+                        raise
+
+            if attempt_model != primary_model:
+                console.print(f"[dim][*] Fallback dinamico attivato: risposta completata con {attempt_model}[/dim]")
+            return response, attempt_model
+        except Exception as e:
+            last_error = str(e)
+            console.print(f"[dim][!] {attempt_model} fallito: {e}. Fallback dinamico in corso...[/dim]")
+            continue
+
+    raise RuntimeError(f"Tutti i modelli nel pool dinamico sono falliti. Ultimo errore: {last_error}")
+
+def auto_repair():
+    log_file = os.path.join(BASE_DIR, "error_log.txt")
+    if not os.path.exists(log_file):
+        console.print("[dim][*] Nessun log di errore trovato.[/dim]")
+        return
+    with open(log_file, "r", encoding="utf-8") as f:
+        content = f.read()
+    if not content.strip():
+        return
+    
+    prompt = f"Sei un assistente diagnostico. Analizza questo log:\n\n{content[-2000:]}"
+    try:
+        resp, used_model = call_with_dynamic_fallback([{"role": "user", "content": prompt}], primary_model=MODEL_CODE)
+        if resp.choices and resp.choices[0].message.content:
+            console.print(Panel(Markdown(resp.choices[0].message.content.strip()), title=f"[bold spring_green1]Report Diagnosi ({used_model})[/]", border_style="green"))
+    except Exception as e:
+        console.print(f"[bold orange_red1]Errore auto-riparazione:[/] {e}")
+
+def main():
+    global current_model, telemetry_enabled
+    
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                if "models" in cfg:
+                    MODELS.update(cfg["models"])
+                if "current_model" in cfg and cfg["current_model"]:
+                    val = cfg["current_model"]
+                    current_model = MODELS.get(val, val)
+        except Exception:
+            pass
+
+    console.print(Panel(
+        f"[bold grey100]Astral CLI Assistant[/] (Dynamic Token-Optimized Engine)\n\n"
+        f"  - [bold]Routing Dinamico:[/bold] [bold dodger_blue1]Auto[/] ([spring_green1]DeepSeek[/] Chat <-> [gold1]GLM[/] Codice)\n"
+        f"  - [bold]Modello Conversazioni:[/bold] [dim]{MODEL_CONVERSATION}[/dim]\n"
+        f"  - [bold]Modello Codice / Sviluppo:[/bold] [dim]{MODEL_CODE}[/dim]\n"
+        f"  - [bold]Stato Attuale:[/bold] [bold plum2]{current_model}[/]\n"
+        f"  - [bold]Comandi:[/bold] /model <auto|deepseek|qwen|flash|pro> | /telemetry | /clear | /repair | /voice | exit",
+        border_style="cyan", padding=(0, 2)
+    ))
+
+    messages = get_history()
+
+    while True:
+        try:
+            prompt_label = "Astral (Auto)" if current_model == "auto" else current_model
+            user_input = console.input(f"\n[bold dodger_blue1]{prompt_label}[/] [bold spring_green1]>[/] ").strip()
+            if not user_input:
+                continue
+
+            if user_input.lower() == '/voice':
+                if stt_integration is None or not stt_integration.is_available():
+                    console.print("[bold orange_red1]STT non disponibile. Dettagli in error_log.txt.[/]")
+                    continue
+                console.print("[dim]Ascolto... parla ora (max 60s, si ferma dopo 2.5s di silenzio)[/dim]")
+                stt_text = stt_integration.transcribe(max_seconds=60)
+                if not stt_text:
+                    log_error("voice/transcribe", "Trascrizione vuota: nessun parlato riconosciuto")
+                    console.print("[dim]Nessun discorso rilevato. Riprova.[/dim]")
+                    continue
+                # La trascrizione viene caricata direttamente nel campo di input.
+                # L'utente puo modificarla liberamente con tastiera prima dell'invio.
+                user_input = read_voice_input(stt_text)
+                if not user_input:
+                    continue
+            if user_input.lower() in ['exit', 'quit']:
+                save_persistent_history(messages)
+                console.print("[dim]Sessione salvata. Arrivederci![/dim]")
+                break
+            
+            lower_input = user_input.lower()
+            if lower_input == '/clear':
+                clear_persistent_history()
+                messages = []
+                continue
+
+            if lower_input == '/repair':
+                console.print("[dim][*] Avvio auto-riparazione...[/dim]")
+                auto_repair()
+                continue
+
+            if lower_input == '/telemetry':
+                telemetry_enabled = not telemetry_enabled
+                state = "[bold spring_green1]ATTIVA[/]" if telemetry_enabled else "[bold orange_red1]DISATTIVA[/]"
+                console.print(f"[dim][*] Telemetria {state}[/dim]")
+                continue
+
+            if lower_input == "/stats":
+                stats = get_telemetry_stats()
+                console.print(stats)
+                continue
+
+            if lower_input.startswith('/model '):
+                target = lower_input.split(maxsplit=1)[1].strip()
+                if target in MODELS:
+                    current_model = MODELS[target]
+                else:
+                    current_model = target
+                
+                try:
+                    cfg_data = {}
+                    if os.path.exists(CONFIG_FILE):
+                        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                            cfg_data = json.load(f)
+                    cfg_data["current_model"] = current_model
+                    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                        json.dump(cfg_data, f, indent=4)
+                except Exception:
+                    pass
+                console.print(f"[dim][*] Modello impostato a [bold dodger_blue1]{current_model}[/][/dim]")
+                continue
+
+            # Routing dinamico: DeepSeek per conversazioni, Qwen per codice
+            active_model = route_model(user_input)
+            if current_model == "auto":
+                if active_model == MODEL_CODE:
+                    console.print(f"[dim][*] Riconosciuta richiesta Codice -> Routing: [gold1]{MODEL_CODE}[/][/dim]")
+                else:
+                    console.print(f"[dim][*] Riconosciuta richiesta Conversazione -> Routing: [steel_blue1]{MODEL_CONVERSATION}[/][/dim]")
+
+            messages.append({"role": "user", "content": user_input})
+            
+            # Live Sliding Window: mantiene il contesto leggero (< 6 turni)
+            messages = compact_history_with_summary(messages)
+
+            try:
+                response, used_model = call_with_dynamic_fallback(messages, tools_schema=tools, primary_model=active_model)
+            except Exception as e:
+                console.print(f"[orange_red1]{e}[/red]")
+                if messages and messages[-1].get("role") == "user":
+                    messages.pop()
+                continue
+
+            print_telemetry(response, used_model)
+            msg = response.choices[0].message
+
+            # Gestione tool calls senza limite rigido: continua fino alla risposta finale del modello
+            tool_followup_error = None
+            while msg.tool_calls:
+                if msg.content:
+                    console.print(f"[dim]{msg.content.strip()}[/dim]")
+                # Strutturiamo il messaggio assistant con i tool calls
+                asst_tool_msg = {
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        } for tc in msg.tool_calls
+                    ]
+                }
+                messages.append(asst_tool_msg)
+
+                for tool_call in msg.tool_calls:
+                    fn_name = tool_call.function.name
+                    try:
+                        fn_args = json.loads(tool_call.function.arguments)
+                    except Exception:
+                        fn_args = {}
+                    
+                    console.print(f" [dim]> Esecuzione Tool: [gold1]{fn_name}[/][/dim]")
+                    
+                    sys_dirs = ["c:\\windows", "system32", "program files"]
+                    
+                    if fn_name == "run_powershell_cmd":
+                        cmd = fn_args.get("command", "")
+                        if any(x in cmd.lower() for x in sys_dirs):
+                            confirm = console.input(f"[bold orange_red1]Confermi l'esecuzione di '{cmd}' su sistema protetto? (s/N): [/]")
+                            if confirm.lower() != 's':
+                                result = {"error": "Annullato dall'utente."}
+                            else:
+                                result = execute_tool(fn_name, fn_args)
+                        else:
+                            result = execute_tool(fn_name, fn_args)
+                    elif fn_name == "move_to_trash":
+                        path = fn_args.get("path", "")
+                        if any(x in path.lower() for x in sys_dirs):
+                            confirm = console.input(f"[bold orange_red1]Confermi eliminazione protetta di '{path}'? (s/N): [/]")
+                            if confirm.lower() != 's':
+                                result = {"error": "Annullato dall'utente."}
+                            else:
+                                result = execute_tool(fn_name, fn_args)
+                        else:
+                            result = execute_tool(fn_name, fn_args)
+                    else:
+                        result = execute_tool(fn_name, fn_args)
+                        
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": maybe_offload_tool_result(json.dumps(result), fn_name)
+                    })
+                
+                try:
+                    response, _ = call_with_dynamic_fallback(messages, tools_schema=tools, primary_model=active_model)
+                    print_telemetry(response, active_model)
+                    msg = response.choices[0].message
+                except Exception as e:
+                    tool_followup_error = str(e)
+                    console.print(f"[orange_red1]{tool_followup_error}[/]")
+                    break
+
+
+            final_text = (msg.content or "").strip()
+            if not final_text:
+                # Fallback: alcuni modelli mettono il testo in reasoning_content o tornano vuoti
+                final_text = (getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or "").strip()
+            if not final_text and tool_followup_error:
+                final_text = (
+                    "La fase strumenti e' terminata, ma non e' stato possibile generare "
+                    f"il riepilogo finale: {tool_followup_error}"
+                )
+            if final_text:
+                console.print(Markdown(final_text))
+                messages.append({"role": "assistant", "content": final_text})
+            else:
+                console.print("[dim](Nessuna risposta testuale dal modello - riformula o riprova.)[/dim]")
+
+            # Salva periodicamente lo storico per non perderlo in caso di chiusura imprevista
+            save_persistent_history(messages)
+
+        except KeyboardInterrupt:
+            save_persistent_history(messages)
+            console.print("\n[dim]Uscita in corso... Storico salvato.[/dim]")
+            break
+        except Exception as e:
+            console.print(f"[bold orange_red1][!] Errore:[/] {e}")
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
