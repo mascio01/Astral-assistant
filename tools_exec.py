@@ -7,6 +7,8 @@ import tempfile
 from core_io import BASE_DIR, _scan_dir_fast, cap_output
 from memory_store import recall_get, recall_list, recall_save
 from tools_patch import apply_code_patch, test_python_file
+from exec_logger import log_execution
+import time
 
 tools = [
     {
@@ -111,6 +113,27 @@ tools = [
 ]
 
 def execute_tool(name, args):
+    """Wrapper n8n Pattern 3: timing + log JSONL; Pattern 2: 1 retry su eccezione imprevista."""
+    t0 = time.perf_counter()
+    try:
+        res = _execute_tool_impl(name, args)
+    except Exception as e1:
+        log_execution(name, args, error=e1, duration_ms=time.perf_counter() - t0)
+        try:
+            time.sleep(1.0)  # backoff pre-retry
+            res = _execute_tool_impl(name, args)
+            log_execution(name, args, duration_ms=time.perf_counter() - t0,
+                          extra={"note": f"ok_dopo_retry: {e1}"})
+        except Exception as e2:
+            log_execution(name, args, error=e2, duration_ms=time.perf_counter() - t0)
+            raise
+        return res
+    err = res.get("error") if isinstance(res, dict) else None
+    log_execution(name, args, error=err, duration_ms=time.perf_counter() - t0)
+    return res
+
+
+def _execute_tool_impl(name, args):
     if not isinstance(args, dict):
         args = {}
     if name == "scan_storage":

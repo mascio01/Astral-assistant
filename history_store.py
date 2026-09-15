@@ -62,6 +62,9 @@ def maybe_offload_tool_result(content, tool_name=""):
     con hash in history (ispirato a nanobot context_governance). Il modello puo'
     recuperare il contenuto completo con recall_get(h)."""
     try:
+        # EVITA nidificazione: il tool recall riporterebbe dati gia' in recall
+        if tool_name == "recall":
+            return content
         if len(content) <= TOOL_RESULT_OFFLOAD_CHARS:
             return content
         h = recall_save(content)

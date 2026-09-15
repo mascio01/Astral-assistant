@@ -33,3 +33,8 @@ $RECYCLE.BIN/
 whisper_bin/Release/ggml-*.bin
 whisper_bin/Release/*.bin
 whisper_bin/**/*.bin
+
+# Cache benchmark (routing dati reali)
+.lb_*
+.or_models_cache.json
+.lb_sync_state.json
