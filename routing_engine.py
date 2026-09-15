@@ -75,6 +75,10 @@ _CODICE_KW = [
     "rifattorizza", "compila", "build", "pyinstaller", "pip", "npm", "git", "regex",
     "json", "endpoint", "api rest", "query", "database", "terminale", "classe",
 ]
+_CODE_TOOL_NAMES = {
+    "apply_code_patch", "test_python_file", "tools_patch", "tools_test",
+    "repair_from_log", "selfmap", "py_compile",
+}
 
 _state = {"previous": None, "streak": {}, "last": None, "context_signature": "", "context_epoch": 0}
 _telemetry_enabled = True
@@ -194,6 +198,29 @@ _ACTION_HINTS = ("esegui", "modifica", "crea", "scrivi", "correggi", "installa",
 _REASONING_HINTS = ("confronta", "progetta", "pianifica", "architettura", "decidi", "valuta", "spiega perché")
 
 
+def _tool_phase(context=None) -> str | None:
+    """Riconosce il tipo di lavoro gia' iniziato dai tool, non solo dal prompt.
+
+    Dopo il primo tool call il testo dell'utente resta invariato: senza questa
+    informazione il router puo' riclassificare erroneamente una modifica al
+    codice come semplice conversazione e mantenere DeepSeek per tutti i follow-up.
+    """
+    for message in context or []:
+        if not isinstance(message, dict):
+            continue
+        for tool_call in message.get("tool_calls") or []:
+            function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+            name = function.get("name", "") if isinstance(function, dict) else ""
+            if name in _CODE_TOOL_NAMES:
+                return "codice"
+        content = str(message.get("content", ""))
+        if message.get("role") == "tool" and any(
+            marker in content.lower() for marker in ("apply_code_patch", "test_python_file", "traceback", "syntaxerror")
+        ):
+            return "codice"
+    return None
+
+
 def _context_features(user_input: str, context=None) -> dict:
     """Estrae il profilo operativo della richiesta e dello storico, senza chiamare una IA."""
     text = user_input or ""
@@ -205,13 +232,15 @@ def _context_features(user_input: str, context=None) -> dict:
     words = set(re.findall(r"[a-zàèéìòù0-9_]{4,}", lower))
     prev_words = set(re.findall(r"[a-zàèéìòù0-9_]{4,}", previous.lower()))
     overlap = len(words & prev_words) / max(1, len(words | prev_words))
-    code = classify_input(text)[0] == "codice"
+    tool_phase = _tool_phase(history)
+    code = classify_input(text)[0] == "codice" or tool_phase == "codice"
     return {
         "quick": any(h in lower for h in _QUICK_HINTS),
         "long": any(h in lower for h in _LONG_HINTS),
         "action": any(h in lower for h in _ACTION_HINTS),
         "reasoning": any(h in lower for h in _REASONING_HINTS),
         "code": code,
+        "tool_phase": tool_phase,
         "input_chars": len(text),
         "history_turns": len(history),
         "history_chars": sum(len(str(m.get("content", ""))) for m in history if isinstance(m, dict)),
@@ -231,7 +260,11 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     if features["long"] or features["history_chars"] > 18000:
         bonus += 0.35 if is_luna else (0.12 if is_deepseek else -0.04)
     if features["code"]:
-        bonus += 0.28 if is_glm else (0.10 if is_luna else -0.03)
+        bonus += 0.75 if is_glm else (0.18 if is_luna else -0.12)
+    if features.get("tool_phase") == "codice":
+        # Durante una modifica gia' avviata il cambio deve essere applicabile
+        # subito: non lasciamo che l'isteresi mantenga il modello conversazionale.
+        bonus += 0.55 if is_glm else (-0.10 if is_deepseek else 0.12)
     if features["reasoning"]:
         bonus += 0.30 if is_luna else 0.05
     if features["action"]:
@@ -536,6 +569,38 @@ def _audit(record: dict):
         pass
 
 
+def _slim_audit(record: dict) -> dict:
+    """Telemetria snella (exception encoding): stesso contenuto informativo,
+    meno byte.
+
+    - ``telemetry_cost_windows``: le finestre coincidono quasi sempre con i
+      costi gia' presenti in ``score_details``; si salvano SOLO i modelli che
+      divergono (>5% di scarto), cosi' il dato mancante resta implicito.
+    - ``pool``: costante quasi sempre; salvato solo quando cambia rispetto al
+      record precedente (assenza = pool invariato).
+    - ``shadow``: ridondante, e' gia' marcato nel ``motivo``.
+    - ``fonte``: derivabile da benchmark_data in lettura, non serve duplicarlo.
+    """
+    out = dict(record)
+    det = out.get("score_details") or {}
+    base = {m: (d or {}).get("costo_per_1000_token") or 0.0
+            for m, d in det.items()}
+    win = out.pop("telemetry_cost_windows", None)
+    if win:
+        diff = {}
+        for nome, w in win.items():
+            d = {m: round(v, 8) for m, v in w.items()
+                 if abs(v - base.get(m, 0.0)) > max(base.get(m, 0.0) * 0.05, 1e-9)}
+            if d:
+                diff[nome] = d
+        if diff:
+            out["cost_windows_diff"] = diff
+    prev = _state.get("last") or {}
+    if out.get("pool") == prev.get("pool"):
+        out.pop("pool", None)
+    return out
+
+
 def _pool_dinamico() -> list:
     """Restituisce il pool gia' calcolato in memoria.
 
@@ -550,6 +615,11 @@ def decide_model(user_input: str, context=None) -> dict:
     """Decisione pesata su richiesta, carico previsto e continuità dello storico."""
     bench = _bench()
     categoria, conf = classify_input(user_input)
+    tool_phase = _tool_phase(context)
+    if tool_phase == "codice":
+        # La fase operativa prevale sul testo originale: il lavoro puo' essere
+        # diventato codice dopo una lettura, una diagnosi o un primo tool call.
+        categoria, conf = "codice", max(conf, 0.90)
     features = _context_features(user_input, context)
     pool = _pool_dinamico()
     personal = _personal_scores()
@@ -607,11 +677,12 @@ def decide_model(user_input: str, context=None) -> dict:
         "scores": scores, "score_details": score_details,
         "telemetry_cost_windows": telemetry_costs,
         "scelto": scelta, "best": best,
-        "margine": margine, "motivo": motivo, "shadow": SHADOW_MODE,
-        "pool": pool, "fonte": (bench.get(scelta) or {}).get("fonte", "default"),
+        "margine": margine, "motivo": motivo,
     }
+    if SHADOW_MODE:
+        record["pool"] = pool  # in shadow il pool e' contesto rilevante
     _state["last"] = record
-    _audit(record)
+    _audit(_slim_audit(record))
     return record
 
 
@@ -630,15 +701,12 @@ def descrivi_ultima_decisione(active_model: str) -> str:
     # Il routing service possiede direttamente il flag: nessun import inverso
     # verso llm_core (evita dipendenza circolare e side effect del client LLM).
     telemetry_active = get_telemetry_enabled()
-    if not telemetry_active:
-        return (f"Routing: {d.get('categoria', '?')} "
-                f"(conf {d.get('confidenza', 0):.0%}) -> [bold dark_orange]{scelto}[/] "
-                f"| score {sc:.2f}")
     best = str(d.get("best", scelto)).split("/")[-1]
-    nota = "" if scelto == best else f" | best: {best} ({d.get('motivo', '')})"
-    return (f"Routing pesato: {d.get('categoria', '?')} "
-            f"(conf {d.get('confidenza', 0):.0%}) -> [bold dark_orange]{scelto}[/] "
-            f"| score {sc:.2f} | dati: {d.get('fonte', '?')}{nota}")
+    # Se scelto != best aggiungo solo il motivo del "perche' non lui";
+    # se e' il vincitore, la riga finisce li': nulla da aggiungere.
+    nota = "" if scelto == best else f" [dim]< {best}: {d.get('motivo', '')}[/dim]"
+    return (f"{d.get('categoria', '?')} {d.get('confidenza', 0):.0%} "
+            f"-> [bold dark_orange]{scelto}[/] {sc:.2f}{nota}")
 
 
 if __name__ == "__main__":

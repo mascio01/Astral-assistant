@@ -64,7 +64,8 @@ from llm_core import (
     set_current_model,
     set_telemetry_enabled,
 )
-from tools_exec import execute_tool, tools
+import tools_gateway as gateway
+from tools_gateway import call_tool as gateway_call_tool
 try:
     from prompt_toolkit import PromptSession
     PROMPT_TOOLKIT_OK = True
@@ -703,7 +704,7 @@ def main():
                               f"{last_meta['facts']} fatti attivi, finestra {last_meta['window']} turni).[/dim]")
 
             try:
-                response, used_model = call_with_dynamic_fallback(messages, tools_schema=tools, primary_model=active_model)
+                response, used_model = call_with_dynamic_fallback(messages, tools_schema=gateway.list_schemas(), primary_model=active_model)
             except Exception as e:
                 console.print(f"[orange_red1]{escape(str(e))}[/red]")
                 if messages and messages[-1].get("role") == "user":
@@ -758,9 +759,9 @@ def main():
                             if confirm.lower() != 's':
                                 result = {"error": "Annullato dall'utente."}
                             else:
-                                result = execute_tool(fn_name, fn_args)
+                                result = gateway_call_tool(fn_name, fn_args)
                         else:
-                            result = execute_tool(fn_name, fn_args)
+                            result = gateway_call_tool(fn_name, fn_args)
                     elif fn_name == "move_to_trash":
                         path = fn_args.get("path", "")
                         if any(x in path.lower() for x in sys_dirs):
@@ -768,11 +769,11 @@ def main():
                             if confirm.lower() != 's':
                                 result = {"error": "Annullato dall'utente."}
                             else:
-                                result = execute_tool(fn_name, fn_args)
+                                result = gateway_call_tool(fn_name, fn_args)
                         else:
-                            result = execute_tool(fn_name, fn_args)
+                            result = gateway_call_tool(fn_name, fn_args)
                     else:
-                        result = execute_tool(fn_name, fn_args)
+                        result = gateway_call_tool(fn_name, fn_args)
                         
                     tool_results_for_learning.append(result)
                     messages.append({
@@ -795,7 +796,7 @@ def main():
                         except Exception:
                             pass
                     response, followup_model = call_with_dynamic_fallback(
-                        messages, tools_schema=tools, primary_model=active_model)
+                        messages, tools_schema=gateway.list_schemas(), primary_model=active_model)
                     record_usage(followup_model, getattr(response, "usage", None))
                     print_telemetry(response, followup_model)
                     msg = response.choices[0].message
