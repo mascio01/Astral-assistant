@@ -44,6 +44,9 @@ COST_WINDOWS = {"breve": 7 * 86400, "medio": 30 * 86400, "lungo": 90 * 86400}
 PERSONAL_DELTA_CAP = 0.35
 PERSONAL_DELTA_STEP = 0.08
 PERSONAL_DELTA_MIN_STEP = 0.015
+# Mean-reversion del delta personale: senza decay, ogni successo (la norma)
+# accumula e il delta sale monotonamente al cap senza mai scendere.
+PERSONAL_DELTA_DECAY = 0.97
 _PERSONAL_LOCK = threading.RLock()
 
 # Pool operativo: LE STESSE IA di prima (specchio di llm_core.DYNAMIC_MODELS_POOL).
@@ -362,8 +365,12 @@ def _save_outcome(model: str, categoria: str, signal: float, weight: float,
                             PERSONAL_DELTA_STEP / math.sqrt(1.0 + attempts))
         change = learning_rate * max(-1.0, min(1.0, float(signal))) * evidence
         old_delta = float(entry.get("delta", 0.0) or 0.0)
+        # Il delta riflette le prestazioni RECENTI, non un accumulo monotonico:
+        # a ogni evento il vecchio delta decade, cosi' una serie di successi
+        # converge a un equilibrio invece di incollarsi al cap.
         new_delta = max(-PERSONAL_DELTA_CAP,
-                        min(PERSONAL_DELTA_CAP, old_delta + change))
+                        min(PERSONAL_DELTA_CAP,
+                            old_delta * PERSONAL_DELTA_DECAY + change))
         entry["delta"] = round(new_delta, 4)
         entry["evidenze"] = attempts + 1
         entry["positive"] = int(entry.get("positive", 0) or 0) + int(signal > 0.25)
@@ -691,6 +698,15 @@ def route(user_input: str, context=None) -> str:
     return decide_model(user_input, context=context)["scelto"]
 
 
+def _macro_categoria(categoria: str) -> str:
+    """Mappa la categoria di routing alla macro LiveBench (es. codice -> coding)."""
+    try:
+        from benchmark_data import GROUP_ROUTING
+        return GROUP_ROUTING.get(categoria, categoria)
+    except Exception:
+        return categoria
+
+
 def descrivi_ultima_decisione(active_model: str) -> str:
     """Riga diagnostica per la console di astral.py."""
     d = _state.get("last") or {}
@@ -705,8 +721,10 @@ def descrivi_ultima_decisione(active_model: str) -> str:
     # Se scelto != best aggiungo solo il motivo del "perche' non lui";
     # se e' il vincitore, la riga finisce li': nulla da aggiungere.
     nota = "" if scelto == best else f" [dim]< {best}: {d.get('motivo', '')}[/dim]"
-    return (f"{d.get('categoria', '?')} {d.get('confidenza', 0):.0%} "
-            f"-> [bold dark_orange]{scelto}[/] {sc:.2f}{nota}")
+    cat = d.get("categoria", "?")
+    return (f"{cat} {d.get('confidenza', 0):.0%} "
+            f"-> [bold dark_orange]{scelto}[/] {sc:.2f} "
+            f"[dim]({_macro_categoria(cat)})[/]{nota}")
 
 
 if __name__ == "__main__":

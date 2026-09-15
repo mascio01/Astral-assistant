@@ -38,3 +38,37 @@ whisper_bin/**/*.bin
 .lb_*
 .or_models_cache.json
 .lb_sync_state.json
+
+# Stato runtime / telemetria / dati personali (non versionare)
+.astral.lock
+.astral_heartbeat.tmp
+.edge_prof/
+.routing_audit.jsonl
+.routing_personal_scores.json
+.selfmap.json
+.selfmap.md
+.watchdog.lock
+chat_history.json
+checkpoints.db
+memory_meta.db
+recall.db
+telemetry.db
+logs/
+.verdict_*.tmp
+.verdict_out.txt
+.verdict_err.txt
+subagents/out/
+
+# Dati sensibili BetFlag (cookies, dump DOM/HTTP) - MAI versionare
+bf_*.txt
+bf_*.html
+bf_*.json
+.subagent_err.txt
+.subagent_out.txt
+.subagents_state.json
+
+# Cache scraping
+scrape_cache/
+
+# Cache scraping
+scrape_cache/

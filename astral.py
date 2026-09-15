@@ -581,6 +581,73 @@ def main():
                         console.print(f"[bold orange_red1][!] Verdetto fallito:[/] {escape(str(v_e))}")
                 continue
 
+            # --- Subagents (verdetto 2026-09-15): scout/reviewer detached, budget 8/h, depth 1 ---
+            if lower_input.startswith('/subagent'):
+                _s_parts = user_input.split(None, 2)
+                _s_ruolo = _s_parts[1].lower() if len(_s_parts) > 1 else ""
+                _s_ctx = _s_parts[2].strip() if len(_s_parts) > 2 else ""
+                if _s_ruolo not in ("scout", "review"):
+                    console.print("[dim]Uso: /subagent scout|review [file1,file2,...] — subagent read-only detached (budget 8 job/h, depth 1)[/dim]")
+                else:
+                    try:
+                        from subagents.watchdog import snapshot
+                        from subagents.jobspec import check_budget
+                        _ok_b, _msg_b = check_budget()
+                        if not _ok_b:
+                            console.print(f"[bold orange_red1][!] {escape(_msg_b)}[/]")
+                        else:
+                            snapshot()
+                            _s_out = os.path.join(BASE_DIR, ".subagent_out.txt")
+                            _s_err = os.path.join(BASE_DIR, ".subagent_err.txt")
+                            for _f in (_s_out, _s_err):
+                                try:
+                                    os.remove(_f)
+                                except Exception:
+                                    pass
+                            _s_tmp = os.path.join(BASE_DIR, ".verdict_quesito.tmp")
+                            with open(_s_tmp, "w", encoding="utf-8") as f:
+                                f.write(_s_ctx)
+                            _sp = subprocess.Popen(
+                                [sys.executable, os.path.join(BASE_DIR, "verdict_runner.py"), _s_ruolo, _s_ctx],
+                                cwd=BASE_DIR,
+                                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                            )
+                            console.print(f"[dim]Subagent {_s_ruolo} avviato (PID {_sp.pid}). Polling...[/dim]")
+                            _deadline = time.time() + 300
+                            _done = False
+                            while time.time() < _deadline:
+                                time.sleep(10)
+                                if os.path.exists(_s_out):
+                                    with open(_s_out, "r", encoding="utf-8", errors="replace") as f:
+                                        _sc = f.read()
+                                    if "VERDICT_DONE" in _sc:
+                                        console.print(_sc.replace("VERDICT_DONE", "").strip())
+                                        _done = True
+                                        break
+                            if not _done:
+                                console.print("[bold orange_red1][!] Subagent non completato entro 5 min.[/]")
+                            # watchdog: verifica hash file critici post-job
+                            try:
+                                from subagents.watchdog import verify
+                                _ch = verify()
+                                if _ch:
+                                    console.print(f"[bold orange_red1][!] WATCHDOG: file critici modificati dal subagent: {', '.join(_ch)}[/]")
+                                else:
+                                    console.print("[dim][watchdog] File critici intatti.[/dim]")
+                            except Exception:
+                                pass
+                            for _f in (_s_tmp, _s_out, _s_err):
+                                try:
+                                    os.remove(_f)
+                                except Exception:
+                                    pass
+                    except Exception as s_e:
+                        log_error("subagents/run", s_e)
+                        console.print(f"[bold orange_red1][!] Subagent fallito:[/] {escape(str(s_e))}")
+                continue
+
             if lower_input.startswith('/usage'):
                 # P3 - Report costi da usage_log: /usage [giorni] [--csv|prices]
                 _u_days, _u_mode = 7, ""
@@ -849,7 +916,101 @@ def main():
                 console.print("[dim]Autoriparazione avviata in background; la sessione resta attiva.[/dim]")
 
 
+# ------------------------------------------------------------------ Guardie anti-loop
+# 1) Lock single-instance: impedisce che due astral.py girino insieme (causa di
+#    retry/polling duplicati e spin-loop). 2) Watchdog CPU: rileva spin-loop e
+#    scrive heartbeat per diagnosi esterna.
+def _acquire_single_instance():
+    """Lock single-instance: se un'altra istanza e' viva, esce subito."""
+    import atexit
+    lock_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".astral.lock")
+    try:
+        if os.path.exists(lock_file):
+            try:
+                with open(lock_file, "r", encoding="utf-8") as f:
+                    old_pid = int(f.read().strip() or "0")
+            except Exception:
+                old_pid = 0
+            if old_pid > 0:
+                _alive = False
+                try:
+                    _out = subprocess.run(
+                        ["tasklist", "/FI", f"PID eq {old_pid}"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    _alive = str(old_pid) in _out.stdout
+                except Exception:
+                    _alive = False
+                if _alive:
+                    console.print(
+                        f"[bold orange_red1][!] Astral e' gia' in esecuzione (PID {old_pid}). "
+                        f"Termina l'altra istanza prima di avviarne una nuova.[/]"
+                    )
+                    sys.exit(1)
+        with open(lock_file, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        atexit.register(lambda: _release_lock(lock_file))
+    except Exception as e:
+        try:
+            log_error("single_instance_lock", e)
+        except Exception:
+            pass
+
+
+def _release_lock(lock_file):
+    try:
+        if os.path.exists(lock_file):
+            os.remove(lock_file)
+    except Exception:
+        pass
+
+
+def _start_loop_watchdog():
+    """Thread daemon: rileva spin-loop (CPU costantemente alta) e scrive heartbeat."""
+    import threading
+    hb_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".astral_heartbeat.tmp")
+    last_cpu = time.process_time()
+    last_t = time.time()
+    spin_streak = 0
+
+    def _tick():
+        nonlocal last_cpu, last_t, spin_streak
+        while True:
+            time.sleep(5)
+            now = time.time()
+            cpu = time.process_time()
+            delta_cpu = cpu - last_cpu
+            delta_t = now - last_t
+            last_cpu, last_t = cpu, now
+            pct = (delta_cpu / delta_t * 100) if delta_t > 0 else 0
+            try:
+                with open(hb_file, "w", encoding="utf-8") as f:
+                    f.write(f"{now:.0f} cpu={pct:.0f}%")
+            except Exception:
+                pass
+            if pct > 80:
+                spin_streak += 1
+            else:
+                spin_streak = 0
+            if spin_streak >= 6:  # 30s consecutivi >80% CPU
+                console.print(
+                    "[bold orange_red1][!] WATCHDOG: possibile spin-loop (CPU >80% per 30s). "
+                    "Se non stai eseguendo un calcolo, premi Ctrl+C o /exit.[/]"
+                )
+                try:
+                    log_error("watchdog_spin_loop", RuntimeError(f"CPU {pct:.0f}% per {spin_streak * 5}s"))
+                except Exception:
+                    pass
+                spin_streak = 0
+
+    t = threading.Thread(target=_tick, daemon=True)
+    t.start()
+    return t
+
+
 if __name__ == "__main__":
+    _acquire_single_instance()
+    _start_loop_watchdog()
     init_db()
     _bs = bootstrap_meta()
     console.print(f"[dim][meta] bootstrap: scanned={_bs.get('scanned', 0)} imported={_bs.get('imported', 0)} skipped={_bs.get('skipped', 0)} error={_bs.get('error', 0)}[/dim]")
