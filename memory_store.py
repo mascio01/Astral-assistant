@@ -10,6 +10,7 @@ from core_io import BASE_DIR, log_error
 
 RECALL_DB = os.path.join(BASE_DIR, "recall.db")
 TELEMETRY_DB = os.path.join(BASE_DIR, "telemetry.db")
+CONFIG_DB = os.path.join(BASE_DIR, "config.db")
 RECALL_MAX_ENTRIES = 200
 RECALL_RETENTION_DAYS = 30
 RECALL_MIN_BYTES = 500
@@ -145,6 +146,31 @@ def checkpoint_pull(prompt):
     except Exception as e:
         log_error("checkpoint_pull", e)
         return None
+def get_config(key, default=None):
+    """Legge un valore persistente dalla tabella config. Ritorna default se non esiste."""
+    try:
+        conn = sqlite3.connect(CONFIG_DB)
+        row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+        conn.close()
+        if row:
+            return row[0]
+        return default
+    except Exception as e:
+        log_error("get_config", e)
+        return default
+
+def set_config(key, value):
+    """Salva un valore persistente nella tabella config (upsert)."""
+    try:
+        conn = sqlite3.connect(CONFIG_DB)
+        conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        log_error("set_config", e)
+        return False
+
 def init_db():
     """Inizializza lo schema SQLite una sola volta all'avvio (ex CREATE TABLE ripetuti a ogni call)."""
     try:
@@ -157,6 +183,10 @@ def init_db():
         conn = sqlite3.connect(TELEMETRY_DB)
         conn.execute("CREATE TABLE IF NOT EXISTS telemetry ("
             "model_name TEXT, ts REAL, prompt_tokens INT, completion_tokens INT, total_tokens INT)")
+        conn.commit()
+        conn.close()
+        conn = sqlite3.connect(CONFIG_DB)
+        conn.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)")
         conn.commit()
         conn.close()
     except Exception as e:

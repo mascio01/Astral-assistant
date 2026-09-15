@@ -7,6 +7,8 @@ from datetime import datetime as _dt
 import io
 import os
 import re
+import subprocess
+import threading
 
 # ASTRAL_DIAG2_BEGIN
 if __name__ == "__main__":
@@ -64,6 +66,27 @@ def log_error(context, exc):
                 traceback.format_exc(), "-" * 50))
     except Exception:
         pass
+def launch_self_repair(restart=False):
+    """Avvia un riparatore isolato; opzionalmente riapre Astral dopo il fix."""
+    try:
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        args = [sys.executable, os.path.join(BASE_DIR, "repair_loop.py"), "--from-log"]
+        if restart:
+            args.append("--restart")
+        subprocess.Popen(
+            args,
+            cwd=BASE_DIR,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+        return True
+    except Exception as exc:
+        _early_log("launch_self_repair", exc)
+        return False
+
+
 def global_exception_handler(exc_type, exc_value, exc_tb):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_tb)
@@ -72,7 +95,19 @@ def global_exception_handler(exc_type, exc_value, exc_tb):
     log_file = os.path.join(BASE_DIR, "error_log.txt")
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(f"[{_dt.now().strftime('%Y-%m-%d %H:%M:%S')}] ERROR:\n{error_msg}\n{'-'*50}\n")
-    print("\n[!] Errore salvato in error_log.txt per l'autoriparazione.")
+    started = launch_self_repair(restart=True)
+    print("\n[!] Crash registrato; autoriparazione e riavvio avviati." if started else
+          "\n[!] Crash registrato; avvio autoriparazione fallito.")
+
+
+def install_exception_hooks():
+    """Copre crash del thread principale e dei thread worker."""
+    sys.excepthook = global_exception_handler
+
+    def _thread_hook(args):
+        global_exception_handler(args.exc_type, args.exc_value, args.exc_traceback)
+
+    threading.excepthook = _thread_hook
 console = Console()
 def safe_print(*args, **kwargs):
     """Print sicuro: escape markup rich + fallback print. Gli error handler non crashano mai."""
