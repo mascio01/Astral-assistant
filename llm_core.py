@@ -251,10 +251,9 @@ def print_telemetry(response, model_name=None):
     if usage:
         prompt_t = getattr(usage, "prompt_tokens", 0) or 0
         resp_t = getattr(usage, "completion_tokens", 0) or 0
-        total_t = getattr(usage, "total_tokens", 0) or (prompt_t + resp_t)
-        console.print(f"[dim italic]>> Telemetria Token | Input: [gold1]{prompt_t}[/] | Output: [dark_orange]{resp_t}[/] | Totale turno: [bold grey100]{total_t}[/][/dim italic]")
+        console.print(f"[dim italic]in [gold1]{prompt_t}[/] out [dark_orange]{resp_t}[/] tot [bold grey100]{prompt_t + resp_t}[/][/dim italic]")
         if model_name:
-            save_telemetry(model_name, prompt_t, resp_t, total_t)
+            save_telemetry(model_name, prompt_t, resp_t, prompt_t + resp_t)
 
 
 def get_telemetry_stats(model_filter=None, days=30):
