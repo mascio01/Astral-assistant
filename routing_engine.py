@@ -196,6 +196,17 @@ def telemetry_stats(model_filter=None, days=30) -> str:
 
 
 _QUICK_HINTS = ("veloce", "rapido", "solo il risultato", "in breve", "una riga", "al volo")
+
+# Segnali di domanda informativa/generalista (come da verdetto: terza categoria
+# "informativo" tra conversazione e codice). Valutati SOLO se nessun segnale
+# codice fa fuoco: una domanda sul codice resta sempre "codice".
+_INFO_HINTS = (
+    "differenza", "differenze", "cos'è", "cos'e", "cosa sono", "che cos",
+    "come funziona", "come funzionano", "perché", "perche", "qual è", "qual e",
+    "qual'", "esempio di", "esempi di", "significato", "spiega", "confronta",
+    " vs ", "meglio", "quando usare", "come si usa", "come si gioca",
+    "regole del", "regole della", "in parole povere", "riassumi",
+)
 _LONG_HINTS = ("in dettaglio", "passo passo", "analizza tutto", "approfondito", "completo", "molti file", "grande progetto")
 _ACTION_HINTS = ("esegui", "modifica", "crea", "scrivi", "correggi", "installa", "lancia", "sposta", "cancella")
 _REASONING_HINTS = ("confronta", "progetta", "pianifica", "architettura", "decidi", "valuta", "spiega perché")
@@ -282,14 +293,36 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
 
 def classify_input(text: str):
     """Ritorna (categoria, confidenza 0-1). 'codice' se rilevati marker/keyword;
+    'informativo' per domande generalista/esplicative senza segnali codice;
     la confidenza cresce col numero di segnali indipendenti (piu' segnali = gate aperto)."""
     lower = (text or "").lower()
     n_kw = sum(1 for kw in _CODICE_KW if re.search(r"\b" + re.escape(kw) + r"\b", lower))
     n_mk = sum(1 for m in _CODE_MARKERS if m in (text or ""))
     if n_kw + n_mk == 0:
+        n_info = sum(1 for h in _INFO_HINTS if h in lower)
+        if n_info >= 1:
+            return "informativo", min(0.90, 0.60 + 0.08 * n_info)
         return "conversazione", 0.85
     conf = min(0.95, 0.52 + 0.16 * n_kw + 0.10 * n_mk)
     return "codice", conf
+
+
+def answer_format_hint(text: str, categoria: str | None = None) -> str:
+    """Separazione routing/formato (verdetto): il classificatore decide COSA
+    (categoria/routing), questo layer decide COME rispondere (tono e formato).
+    Ritorna una direttiva da appendere al system prompt ('' se nessuna)."""
+    cat = categoria or classify_input(text)[0]
+    if cat == "informativo":
+        return ("FORMATO RISPOSTA (domanda informativa/generalista): rispondi in modo "
+                "conversazionale e naturale, come in una chiacchierata. NIENTE tabelle, "
+                "NIENTE elenchi puntati lunghi, NIENTE tono da documentazione tecnica. "
+                "Prosa breve (max ~150 parole), al massimo 2-3 punti chiave solo se "
+                "davvero utili. Vai al sodo.")
+    if cat == "conversazione":
+        return ("FORMATO RISPOSTA (conversazione): tono naturale e colloquiale, "
+                "risposta breve; niente strutture da documento (tabelle/header) "
+                "salvo richiesta esplicita.")
+    return ""
 
 
 def _hydrate_bench() -> None:
@@ -622,6 +655,9 @@ def decide_model(user_input: str, context=None) -> dict:
     """Decisione pesata su richiesta, carico previsto e continuità dello storico."""
     bench = _bench()
     categoria, conf = classify_input(user_input)
+    # "informativo" non esiste nei benchmark: per la scelta del modello pesa
+    # come "conversazione", ma resta categoria a se' per learning/formato.
+    bench_cat = "conversazione" if categoria == "informativo" else categoria
     tool_phase = _tool_phase(context)
     if tool_phase == "codice":
         # La fase operativa prevale sul testo originale: il lavoro puo' essere
@@ -635,7 +671,7 @@ def decide_model(user_input: str, context=None) -> dict:
     base_scores = {}
     for m in pool:
         base_scores[m], ufficiale, personale, correzione_personale, costo_k = _score(
-            bench, m, categoria, personal, telemetry_costs, pool=pool)
+            bench, m, bench_cat, personal, telemetry_costs, pool=pool)
         score_details[m] = {
             "ufficiale": ufficiale,
             "personale": personale,
@@ -736,8 +772,9 @@ if __name__ == "__main__":
         ("correggi il bug nella classe python", "codice"),
         ("il comando powershell per listare i processi", "codice"),
         ("come stai? raccontami una curiosita", "conversazione"),
-        ("qual e la capitale della francia", "conversazione"),
-        ("spiegami la teoria della relativita", "conversazione"),
+        ("qual e la capitale della francia", "informativo"),
+        ("spiegami la teoria della relativita", "informativo"),
+        ("qual e' la differenza tra sit and go e tavoli cash nel poker", "informativo"),
         ("consigliami un film da stasera", "conversazione"),
         ("buongiorno, che tempo fa oggi?", "conversazione"),
     ]
@@ -749,4 +786,4 @@ if __name__ == "__main__":
     except Exception:
         pass
     d = decide_model("scrivi una funzione python che parsa un csv")
-    print("Demo:", d["categoria"], "->", d["scelto"], "| pool:", d["pool"])
+    print("Demo:", d["categoria"], "->", d["scelto"], "| pool:", d.get("pool", []))

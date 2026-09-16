@@ -337,7 +337,18 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
     last_error = ""
 
     # Include sempre il System Prompt per definire istruzioni, ruoli e limiti
-    payload_messages = [{"role": "system", "content": SYSTEM_INSTRUCTION}] + messages
+    # + direttiva di formato (separazione routing/formato, verdetto lite).
+    system_content = SYSTEM_INSTRUCTION
+    try:
+        from routing_engine import answer_format_hint
+        last_user = next((m.get("content", "") for m in reversed(messages)
+                          if isinstance(m, dict) and m.get("role") == "user"), "")
+        fmt = answer_format_hint(last_user)
+        if fmt:
+            system_content = SYSTEM_INSTRUCTION + "\n\n" + fmt
+    except Exception:
+        pass
+    payload_messages = [{"role": "system", "content": system_content}] + messages
 
     for attempt_model in models_to_try:
         try:
