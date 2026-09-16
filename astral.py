@@ -213,13 +213,16 @@ def main():
             pass
 
     console.print(Panel(
-        f"[bold grey100]Astral CLI Assistant[/] (Dynamic Token-Optimized Engine)\n\n"
-        f"  - [bold]Routing Dinamico:[/bold] [bold dark_orange]Auto[/] (pool dinamico: [gold1]LiveBench[/] + [dark_orange]OpenRouter[/])\n"
-        f"  - [bold]Modello Conversazioni:[/bold] [dim]{MODEL_CONVERSATION}[/dim]\n"
-        f"  - [bold]Modello Codice / Sviluppo:[/bold] [dim]{MODEL_CODE}[/dim]\n"
-        f"  - [bold]Stato Attuale:[/bold] [bold orange1]{get_current_model()}[/]\n"
-        f"  - [bold]Comandi:[/bold] /model <auto|deepseek|glm|sol> | /telemetry | /clear | /repair | /voice | exit",
-        border_style="orange1", padding=(0, 2)
+        f"[bold white]Il tuo assistente operativo per Windows 11[/]\n"
+        f"[dim]Conversazione, sviluppo e automazione in un unico spazio.[/]\n\n"
+        f"[bold]ROUTING[/]     [bold green]AUTO[/]  [dim]pool dinamico[/]\n"
+        f"[bold]CHAT[/]        [dim]{MODEL_CONVERSATION}[/]\n"
+        f"[bold]SVILUPPO[/]    [dim]{MODEL_CODE}[/]\n"
+        f"[bold]ATTIVO[/]      [bold cyan]{get_current_model()}[/]\n\n"
+        f"[dim]Scrivi una richiesta oppure usa [/][bold cyan]/help[/][dim] per i comandi.[/]",
+        title="[bold bright_cyan] ASTRAL [/bold bright_cyan] [dim]· workspace[/dim]",
+        subtitle="[dim]online · pronto a collaborare[/dim]",
+        border_style="bright_cyan", padding=(1, 2)
     ))
 
     messages = get_history()
