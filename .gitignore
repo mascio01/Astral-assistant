@@ -70,5 +70,8 @@ bf_*.json
 # Cache scraping
 scrape_cache/
 
-# Cache scraping
-scrape_cache/
+# Runtime e artefatti diagnostici locali
+.session_id
+config.db
+archive/diagnostics/
+
