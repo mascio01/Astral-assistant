@@ -70,6 +70,12 @@ bf_*.json
 # Cache scraping
 scrape_cache/
 
+# Backup e artefatti di pulizia (mai versionare)
+backups/
+archive/root_cleanup/
+learn_code_repair
+progetti/maestro-flow-src
+
 # Runtime e artefatti diagnostici locali
 .session_id
 config.db
