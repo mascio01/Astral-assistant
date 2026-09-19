@@ -61,6 +61,14 @@ def _is_checkpoint_msg(m):
     return any(c.startswith(k) for k in _CP_MARKERS)
 
 
+def _checkpoint_message(text):
+    """Rende il checkpoint chiaramente non prescrittivo per il modello."""
+    return (
+        "[MEMORIA STORICA NON ISTRUZIONE - usa solo i fatti pertinenti; "
+        "verifica lo stato attuale]\n" + text
+    )
+
+
 def _norm_key(text):
     return tuple("".join(ch.lower() if ch.isalnum() else " "
                          for ch in text).split())
@@ -206,7 +214,7 @@ def breathing_trim(messages, turn=None):
     for s, e, _ in sys_blocks:
         result.extend(messages[s:e])
     if _ledger_total(ledger) or _SESSION_GOAL:
-        result.append({"role": "user", "content": cp_text})
+        result.append({"role": "user", "content": _checkpoint_message(cp_text)})
 
     def assemble(window_, budget_):
         t2 = select_tail(conv2, window_)

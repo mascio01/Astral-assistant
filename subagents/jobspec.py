@@ -16,13 +16,15 @@ RUOLI = {
     "scout": {
         "descrizione": "Esplora il codebase (selfmap + file) e riporta fatti strutturali.",
         "tools": ["read_file", "selfmap", "search"],
-        "modello": "deepseek/deepseek-v4-flash-0731",
+        # Fallback solo se il router dinamico non e' disponibile.
+        "modello_fallback": "deepseek/deepseek-v4-flash-0731",
         "temp": 0.3,
     },
     "reviewer": {
         "descrizione": "Revisione avversariale di un diff/patch: rischi, bug, regressioni.",
         "tools": ["read_file", "search"],
-        "modello": "z-ai/glm-5.3-flash",
+        # Fallback solo se il router dinamico non e' disponibile.
+        "modello_fallback": "z-ai/glm-5.3-flash",
         "temp": 0.4,
     },
 }

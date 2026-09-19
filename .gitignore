@@ -1,4 +1,4 @@
-﻿# Astral Assistant - .gitignore
+# Astral Assistant - .gitignore
 # Configurazioni e chiavi
 .env
 .env.local
@@ -47,6 +47,8 @@ whisper_bin/**/*.bin
 .routing_personal_scores.json
 .selfmap.json
 .selfmap.md
+bootstrap.json
+bootstrap.md
 .watchdog.lock
 chat_history.json
 checkpoints.db
@@ -81,3 +83,15 @@ progetti/maestro-flow-src
 config.db
 archive/diagnostics/
 
+chat_history_*.json
+_*.py
+_*.txt
+_*.json
+.astral_sessions.lock*
+.repair_last.json
+verdict/archive/
+__pycache__/
+disco_dancer.py
+identity.md
+state.md
+progetti/

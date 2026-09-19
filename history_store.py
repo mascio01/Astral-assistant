@@ -4,10 +4,14 @@
 import json
 import os
 import time
+import uuid
 from core_io import BASE_DIR, console, log_error
 from memory_store import recall_save
 
-HISTORY_FILE = os.path.join(BASE_DIR, "chat_history.json")
+# Ogni processo ha una cronologia privata: evita che due sessioni si
+# sovrascrivano il rispettivo contesto mentre memoria/checkpoint restano condivisi.
+SESSION_ID = os.environ.get("ASTRAL_SESSION_ID") or uuid.uuid4().hex[:12]
+HISTORY_FILE = os.path.join(BASE_DIR, f"chat_history_{SESSION_ID}.json")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 MAX_DAYS_HISTORY = 14
 MAX_HISTORY_WINDOW_TURNS = 6

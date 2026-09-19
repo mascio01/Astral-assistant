@@ -6,6 +6,8 @@
 import threading
 import time
 
+from core_io import console
+from rich.markup import escape
 from exec_logger import log_execution
 
 # --- Kill switch globale ---
@@ -82,11 +84,12 @@ def _with_timeout(fn, timeout, name):
 # --- Registro tool ---
 _TOOL_SPECS = {}
 
-def _register(name, namespace, description, schema, handler, timeout=30.0, read_only=True):
+def _register(name, namespace, description, schema, handler, timeout=30.0,
+             read_only=True, interactive=False):
     _TOOL_SPECS[name] = {
         "name": name, "namespace": namespace, "description": description,
         "schema": schema, "handler": handler, "timeout": timeout,
-        "read_only": read_only,
+        "read_only": read_only, "interactive": interactive,
     }
 
 # --- Handler: delegano ai backend esistenti (niente doppio logging) ---
@@ -114,6 +117,96 @@ def _h_scrape(args):
     r.html = ""
     return r.to_dict() if args.get("json") else _fmt(r)
 
+
+def _h_subagent(role, args):
+    """Esegue un subagent read-only richiesto dal modello, senza modifiche al codebase."""
+    from subagents.roles import run_role
+    context = str((args or {}).get("context", "")).strip()
+    result = run_role(role, contesto=context)
+    return {
+        "ok": bool(result.get("ok")),
+        "role": role,
+        "report": result.get("report", ""),
+        "error": result.get("errore") if not result.get("ok") else None,
+        "output_file": result.get("out_path"),
+    }
+
+
+def _h_ask_user_question(args):
+    """Questionario interattivo locale, compatibile con il contratto Pi."""
+    questions = args.get("questions") if isinstance(args, dict) else None
+    if not isinstance(questions, list) or not 1 <= len(questions) <= 4:
+        return {"content": [{"type": "text", "text": "User declined to answer questions"}],
+                "details": {"answers": [], "cancelled": True, "error": "no_questions"}}
+    answers = []
+    for index, item in enumerate(questions):
+        if not isinstance(item, dict):
+            return {"error": f"Domanda non valida all'indice {index}."}
+        question = str(item.get("question", "")).strip()
+        header = str(item.get("header", f"Domanda {index + 1}"))[:16]
+        options = item.get("options")
+        if not question or not isinstance(options, list) or not 2 <= len(options) <= 4:
+            return {"error": f"Domanda non valida all'indice {index}: servono 2-4 opzioni."}
+        labels = []
+        for option in options:
+            label = str(option.get("label", "")).strip() if isinstance(option, dict) else ""
+            if not label or label.lower() in {"other", "type something.", "next"} or label in labels:
+                return {"error": f"Opzione non valida nella domanda {index + 1}."}
+            labels.append(label)
+        console.print(f"\n[bold cyan]{escape(header)}[/]  {escape(question)}")
+        for number, option in enumerate(options, 1):
+            console.print(f"  [bold]{number}[/]. {escape(str(option.get('label', '')))} [dim]{escape(str(option.get('description', '')))}[/]")
+        console.print("  [bold]c[/]. Scrivi una risposta personalizzata")
+        try:
+            raw = console.input("[dim]Scelta (q per annullare)[/] > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raw = "q"
+        if raw.lower() in {"q", "quit", "cancel"}:
+            return {"content": [{"type": "text", "text": "User declined to answer questions"}],
+                    "details": {"answers": answers, "cancelled": True}}
+        if item.get("multiSelect"):
+            try:
+                selected = [labels[int(part.strip()) - 1] for part in raw.split(",")]
+            except (ValueError, IndexError):
+                selected = []
+            answer = {"questionIndex": index, "question": question, "kind": "multi",
+                      "answer": None, "selected": selected} if selected else {
+                "questionIndex": index, "question": question, "kind": "custom", "answer": raw}
+        elif raw.isdigit() and 1 <= int(raw) <= len(labels):
+            answer = {"questionIndex": index, "question": question, "kind": "option",
+                      "answer": labels[int(raw) - 1]}
+            preview = options[int(raw) - 1].get("preview")
+            if preview:
+                answer["preview"] = str(preview)
+        else:
+            answer = {"questionIndex": index, "question": question, "kind": "custom", "answer": raw}
+        try:
+            note = console.input("[dim]Nota opzionale (Invio per continuare)[/] > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            note = ""
+        if note:
+            answer["notes"] = note
+        answers.append(answer)
+    try:
+        global_note = console.input("[dim]Nota globale opzionale (Invio per inviare)[/] > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        global_note = ""
+    segments = []
+    for answer in answers:
+        value = answer.get("selected") or answer.get("answer")
+        if value:
+            segments.append(f'"{answer["question"]}"="{value}"')
+    text = "User has answered your questions: " + "; ".join(segments)
+    if not segments and not global_note:
+        text = "User declined to answer questions"
+    if global_note:
+        text += f" global note: {global_note}"
+    details = {"answers": answers, "cancelled": False}
+    if global_note:
+        details["globalNote"] = global_note
+    return {"content": [{"type": "text", "text": text}], "details": details}
+
+
 _READ_ONLY = {"scan_storage", "recall", "test_python_file"}
 
 def _build_schemas():
@@ -140,6 +233,38 @@ def _build_schemas():
                       "json": {"type": "boolean", "description": "Output come JSON"}
                   }, "required": ["url"]}}},
               _h_scrape, timeout=45.0, read_only=True)
+    for role, name, description in (
+        ("scout", "run_subagent_scout", "Analizza in sola lettura la struttura del progetto e i punti di integrazione."),
+        ("reviewer", "run_subagent_reviewer", "Revisiona in sola lettura file o diff e segnala bug, regressioni e rischi."),
+    ):
+        _register(name, "subagents", description,
+                  {"type": "function", "function": {
+                      "name": name,
+                      "description": description + " Usa context con percorsi relativi separati da virgole.",
+                      "parameters": {"type": "object", "properties": {
+                          "context": {"type": "string", "description": "File relativi o contesto, separati da virgole"}
+                      }, "required": ["context"]}}},
+                  lambda args, _role=role: _h_subagent(_role, args),
+                  timeout=300.0, read_only=True)
+
+    _register("ask_user_question", "interaction",
+              "Pone all'utente un questionario strutturato con opzioni, risposta libera e note.",
+              {"type": "function", "function": {
+                  "name": "ask_user_question",
+                  "description": "Pone all'utente un questionario strutturato di 1-4 domande con 2-4 opzioni.",
+                  "parameters": {"type": "object", "properties": {
+                      "questions": {"type": "array", "minItems": 1, "maxItems": 4,
+                          "items": {"type": "object", "properties": {
+                              "question": {"type": "string"}, "header": {"type": "string", "maxLength": 16},
+                              "options": {"type": "array", "minItems": 2, "maxItems": 4,
+                                  "items": {"type": "object", "properties": {
+                                      "label": {"type": "string", "maxLength": 60},
+                                      "description": {"type": "string"}, "preview": {"type": "string"}},
+                                      "required": ["label", "description"]}},
+                              "multiSelect": {"type": "boolean"}},
+                              "required": ["question", "header", "options"]}},
+                  }, "required": ["questions"]}}},
+              _h_ask_user_question, timeout=600.0, read_only=True, interactive=True)
 
 # --- API pubblica ---
 def search_tools(query=""):
@@ -176,7 +301,15 @@ def call_tool(name, arguments=None):
     if not br.allow():
         return {"error": f"Circuit breaker aperto per '{name}': troppi errori recenti."}
     t0 = time.perf_counter()
-    ok, res = _with_timeout(lambda: spec["handler"](args), spec["timeout"], name)
+    if spec.get("interactive"):
+        try:
+            res = spec["handler"](args)
+            ok = True
+        except Exception as exc:
+            res = {"error": f"{type(exc).__name__}: {exc}"}
+            ok = False
+    else:
+        ok, res = _with_timeout(lambda: spec["handler"](args), spec["timeout"], name)
     dur = time.perf_counter() - t0
     err = res.get("error") if isinstance(res, dict) else None
     if ok and not err:

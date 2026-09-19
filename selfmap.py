@@ -144,5 +144,107 @@ def start_watcher(interval=10):
             time.sleep(interval)
     threading.Thread(target=_watch, name="selfmap-watcher", daemon=True).start()
 
+IDENTITY_FILE = os.path.join(ROOT, "identity.md")
+STATE_FILE = os.path.join(ROOT, "state.md")
+BOOTSTRAP_JSON = os.path.join(ROOT, "bootstrap.json")
+BOOTSTRAP_MD = os.path.join(ROOT, "bootstrap.md")
+
+
+def _read_context_file(path, limit=1200):
+    try:
+        with open(path, encoding="utf-8-sig", errors="replace") as stream:
+            text = stream.read()
+    except OSError:
+        return ""
+    text = "\n".join(line.rstrip() for line in text.splitlines())
+    return text.strip()[:limit]
+
+
+def _context_hash(path):
+    try:
+        with open(path, "rb") as stream:
+            return hashlib.sha256(stream.read()).hexdigest()
+    except OSError:
+        return "missing"
+
+
+def _bootstrap_data():
+    """Costruisce il contesto minimo senza caricare la mappa tecnica completa."""
+    return {
+        "version": 1,
+        "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+        "identity": _read_context_file(IDENTITY_FILE),
+        "state": _read_context_file(STATE_FILE),
+        "selfmap": {
+            "generated": "",
+            "file_count": 0,
+            "total_lines": 0,
+        },
+        "hashes": {
+            "identity": _context_hash(IDENTITY_FILE),
+            "state": _context_hash(STATE_FILE),
+            "selfmap": _context_hash(JSON_OUT),
+        },
+    }
+
+
+def refresh_bootstrap():
+    """Genera bootstrap.json e bootstrap.md come viste derivate."""
+    data = _bootstrap_data()
+    try:
+        with open(JSON_OUT, encoding="utf-8") as stream:
+            index = json.load(stream)
+        data["selfmap"] = {
+            "generated": index.get("generated", ""),
+            "file_count": index.get("file_count", 0),
+            "total_lines": index.get("total_lines", 0),
+        }
+    except (OSError, ValueError, TypeError):
+        pass
+    json_text = json.dumps(data, ensure_ascii=False, indent=2)
+    md_text = "\n".join([
+        "# Astral Bootstrap",
+        "Contesto minimo derivato automaticamente; i dettagli tecnici sono on-demand.",
+        "",
+        "## Identita'",
+        data["identity"] or "(identity.md assente)",
+        "",
+        "## Stato",
+        data["state"] or "(state.md assente)",
+        "",
+        "## Mappa tecnica",
+        "%s file, %s righe; generata: %s" % (
+            data["selfmap"]["file_count"], data["selfmap"]["total_lines"],
+            data["selfmap"]["generated"] or "n/d"),
+        "",
+        "## Integrita'",
+        "Hash di identity.md, state.md e .selfmap.json in bootstrap.json.",
+    ]) + "\n"
+    for path, content in ((BOOTSTRAP_JSON, json_text), (BOOTSTRAP_MD, md_text)):
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(content)
+        os.replace(tmp, path)
+    return data
+
+
+def load_bootstrap_context(max_chars=2200):
+    """Carica solo identita', stato e contatori della mappa."""
+    try:
+        data = refresh_bootstrap()
+    except Exception:
+        data = _bootstrap_data()
+    text = "\n\n".join([
+        "[ASTRAL BOOTSTRAP]",
+        "IDENTITA':\n" + data.get("identity", ""),
+        "STATO:\n" + data.get("state", ""),
+        "MAPPA: %s file, %s righe; dettagli on-demand." % (
+            data.get("selfmap", {}).get("file_count", 0),
+            data.get("selfmap", {}).get("total_lines", 0)),
+    ])
+    return text[:max_chars].rstrip()
+
+
 if __name__ == "__main__":
     print("Selfmap generata:", generate())
+    refresh_bootstrap()

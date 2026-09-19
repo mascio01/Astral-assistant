@@ -109,6 +109,20 @@ def install_exception_hooks():
 
     threading.excepthook = _thread_hook
 console = Console()
+
+# Colore per-sessione: usato dal prompt e da tutti i messaggi "elaborazione".
+# Default "dodger_blue1" finché astral.py non chiama set_session_color().
+_SESSION_COLOR = "dodger_blue1"
+
+def set_session_color(color: str):
+    """Imposta il colore della sessione corrente (usato da prompt e status 'Elaborazione')."""
+    global _SESSION_COLOR
+    _SESSION_COLOR = color
+
+def get_session_color() -> str:
+    """Ritorna il colore della sessione corrente."""
+    return _SESSION_COLOR
+
 def safe_print(*args, **kwargs):
     """Print sicuro: escape markup rich + fallback print. Gli error handler non crashano mai."""
     text = " ".join(str(a) for a in args)
