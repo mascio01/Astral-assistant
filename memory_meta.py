@@ -29,6 +29,53 @@ def _conn():
     c.execute("PRAGMA busy_timeout=10000")
     return c
 
+
+_GLOBAL_COUNTER_DDL = """CREATE TABLE IF NOT EXISTS global_counters (
+    key TEXT PRIMARY KEY,
+    value INTEGER NOT NULL DEFAULT 0,
+    updated_utc INTEGER NOT NULL
+)"""
+
+
+def next_global_counter(key, step=1):
+    """Incrementa atomicamente un contatore condiviso tra sessioni/processi.
+
+    Restituisce il nuovo valore; in caso di errore ritorna None senza bloccare
+    la conversazione. Il chiamante puo' quindi usare un fallback locale.
+    """
+    try:
+        key = str(key or "").strip()
+        if not key:
+            return None
+        step = int(step)
+        with _LOCK:
+            c = _conn()
+            try:
+                c.execute("BEGIN IMMEDIATE")
+                c.execute(_GLOBAL_COUNTER_DDL)
+                row = c.execute(
+                    "SELECT value FROM global_counters WHERE key=?", (key,)
+                ).fetchone()
+                value = int(row[0]) if row else 0
+                value += step
+                c.execute(
+                    "INSERT INTO global_counters(key, value, updated_utc) VALUES(?,?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                    "updated_utc=excluded.updated_utc",
+                    (key, value, int(time.time())),
+                )
+                c.commit()
+                return value
+            finally:
+                c.close()
+    except Exception as e:
+        try:
+            log_error("memory_meta.global_counter", e)
+        except Exception:
+            pass
+        return None
+
+
 def init_meta():
     """Schema + indici (idempotente, BEGIN IMMEDIATE per init concorrenziale)."""
     with _LOCK:
