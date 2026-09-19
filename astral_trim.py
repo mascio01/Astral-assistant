@@ -16,6 +16,11 @@ import math
 import os
 import sys
 
+try:
+    from memory_meta import next_global_counter
+except Exception:
+    next_global_counter = None
+
 MAX_CONTENT_CHARS = 1500    # cap storico di get_history
 CHECKPOINT_MAX_CHARS = 200  # cap storico del checkpoint
 CHECKPOINT_MAX_ITEMS = 8
@@ -175,11 +180,21 @@ def _ledger_dump(ledger, cycle):
 
 def breathing_trim(messages, turn=None):
     """Trimmer respiratorio: finestra e budget sinusoidali, checkpoint a
-    ledger di fatti. Deterministico, stdlib-only, zero orfani."""
+    ledger di fatti. Il ciclo e' globale/persistente; il ledger resta locale.
+    """
     global _TURNS_SEEN
     if turn is None:
-        turn = _TURNS_SEEN
-    _TURNS_SEEN = turn + 1
+        if next_global_counter is not None:
+            # Il valore restituito e' 1-based: il primo turno usa fase 0.
+            global_turn = next_global_counter("breathing_turn")
+            if global_turn is not None:
+                turn = global_turn - 1
+        if turn is None:
+            turn = _TURNS_SEEN
+            _TURNS_SEEN = turn + 1
+    else:
+        # Turno esplicito: preserva il comportamento deterministico dei test.
+        _TURNS_SEEN = max(_TURNS_SEEN, turn + 1)
     phase = (turn % BREATH_PERIOD) / BREATH_PERIOD * 2 * math.pi
     wave = (1 + math.sin(phase)) / 2
     window = int(round(WAVE_MIN_TURNS + (WAVE_MAX_TURNS - WAVE_MIN_TURNS) * wave))
