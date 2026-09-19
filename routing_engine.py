@@ -22,13 +22,38 @@ import time
 from datetime import datetime
 
 from core_io import log_error
+from budget_guard import check_credits
 from price_map import cost_usd, get_price
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIT_FILE = os.path.join(BASE_DIR, ".routing_audit.jsonl")
 
-# Pesi: qualita' (60% categoria + 40% affidabilita) 0.7 + costo REALE OpenRouter 0.3.
+# Pesi base: qualita' (60% categoria + 40% affidabilita) 0.7 + costo REALE
+# OpenRouter 0.3. Il peso del costo e' poi modulato dinamicamente dal tier di
+# budget in base al credito residuo (set_budget_tier, chiamato da astral.py
+# una volta per sessione; vedi _effective_pes()).
 PESI = {"qualita": 0.7, "costo": 0.3}
+# Tier budget: sotto soglie di credito residuo il costo pesa di piu'.
+# (soglia_usd, peso_costo): il primo tier applicabile vince; None = peso base.
+BUDGET_TIERS = [
+    (20.0, 0.55),   # credito quasi esaurito: risparmio aggressivo
+    (50.0, 0.35),   # credito in esaurimento: pressione moderata
+]
+
+
+def set_budget_tier(remaining, total=None):
+    """Aggiorna PESI in base al credito residuo (chiamato a inizio sessione)."""
+    peso = 0.3
+    if remaining is not None:
+        # Anche con total=None (pagamento a consumo illimitato) si applicano
+        # le soglie assolute: e' il saldo reale, e' quello che conta.
+        for soglia, p in BUDGET_TIERS:
+            if remaining < soglia:
+                peso = p
+                break
+    PESI["costo"] = peso
+    PESI["qualita"] = round(1.0 - peso, 2)
+    return dict(PESI)
 GATE_MIN = 0.55          # sotto: fallback conservativo
 SWITCH_IMMEDIATO = 0.75  # sopra: switch immediato
 MARGINE_MINIMO = 0.05    # margine base per cambiare modello (fascia media: dinamico)
@@ -42,6 +67,9 @@ COST_WINDOWS = {"breve": 7 * 86400, "medio": 30 * 86400, "lungo": 90 * 86400}
 # Correzione personale: delta piccolo, appreso dagli esiti utili e non da un
 # voto statico. Il benchmark resta dominante; il delta non supera +/-0.35.
 PERSONAL_DELTA_CAP = 0.35
+# Profilo personale a due livelli: generale + categorie Astral.
+PERSONAL_GENERAL_CAP = 0.20
+PERSONAL_CATEGORY_CAP = 0.22
 PERSONAL_DELTA_STEP = 0.08
 PERSONAL_DELTA_MIN_STEP = 0.015
 # Mean-reversion del delta personale: senza decay, ogni successo (la norma)
@@ -120,10 +148,12 @@ def set_personal_score(model: str, categoria: str, score: float) -> bool:
                                              (value - 5.0) * 0.04))
         with _PERSONAL_LOCK:
             current = _personal_scores()
-            entry = current.setdefault(str(model), {}).setdefault(str(categoria), {})
+            model_data = current.setdefault(str(model), {})
+            categories = model_data.setdefault("delta_categorie", {})
+            entry = categories.setdefault(str(categoria), {})
             if not isinstance(entry, dict):
                 entry = {}
-                current[str(model)][str(categoria)] = entry
+                categories[str(categoria)] = entry
             entry.update({"delta": round(delta, 4), "manual_seed": True,
                           "last_event": "manual_seed"})
             _save_personal_scores(current)
@@ -263,6 +293,33 @@ def _context_features(user_input: str, context=None) -> dict:
     }
 
 
+def _active_categories(user_input: str, features: dict, primary=None) -> list:
+    """Restituisce le categorie Astral attive con peso anti-doppio-conteggio."""
+    detected = []
+    primary = primary or classify_input(user_input or "")[0]
+
+    def add(name, weight):
+        if name and name not in [item[0] for item in detected]:
+            detected.append((name, round(max(0.0, min(1.0, weight)), 3)))
+
+    add(primary, 1.0)
+    if features.get("code") and primary != "codice":
+        add("codice", 0.80)
+    if features.get("tool_phase") == "codice":
+        add("tool", 0.70)
+    if features.get("action"):
+        add("azione", 0.65)
+    if features.get("reasoning"):
+        add("ragionamento", 0.60)
+    if features.get("long") or features.get("history_chars", 0) > 18000:
+        add("approfondimento", 0.60)
+    if features.get("quick"):
+        add("rapidita", 0.55)
+    if features.get("overlap", 0.0) >= 0.15:
+        add("continuita", 0.45)
+    return detected
+
+
 def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     """Modulatore operativo (scala score 0-10), volutamente piccolo rispetto ai benchmark."""
     bonus = 0.0
@@ -368,9 +425,9 @@ def _bench() -> dict:
 def _personal_scores() -> dict:
     """Legge il profilo appreso senza premiare la frequenza d'uso.
 
-    Formato nuovo: model -> categoria -> {delta, evidenze, positive, negative,
-    recoverable_errors}. I numeri del vecchio formato restano leggibili ma non
-    vengono piu' trattati come un voto assoluto.
+    Il formato corrente e' model -> ``delta_generale`` + ``delta_categorie``.
+    Le chiavi piatte del formato precedente restano leggibili e vengono migrate
+    nel contenitore delle categorie al primo aggiornamento, senza perderne i dati.
     """
     try:
         with open(PERSONAL_SCORES_FILE, encoding="utf-8") as f:
@@ -381,15 +438,19 @@ def _personal_scores() -> dict:
 
 
 def _save_outcome(model: str, categoria: str, signal: float, weight: float,
-                  label: str) -> dict:
+                  label: str, active_categories=None) -> dict:
     """Aggiorna il delta con apprendimento a passo decrescente e cap rigido."""
     with _PERSONAL_LOCK:
         current = _personal_scores()
         model_data = current.setdefault(str(model), {})
-        entry = model_data.setdefault(str(categoria), {})
+        categories = model_data.setdefault("delta_categorie", {})
+        for key in list(model_data):
+            if key not in {"delta_generale", "delta_categorie"}:
+                categories.setdefault(key, model_data.pop(key))
+        entry = model_data.setdefault("delta_generale", {})
         if not isinstance(entry, dict):
             entry = {"delta": 0.0, "legacy_value": entry}
-            model_data[str(categoria)] = entry
+            model_data["delta_generale"] = entry
         evidence = max(0.0, min(1.0, float(weight)))
         attempts = int(entry.get("evidenze", 0) or 0)
         # Passo piu' grande all'inizio, poi piu' prudente: evita che un singolo
@@ -411,9 +472,18 @@ def _save_outcome(model: str, categoria: str, signal: float, weight: float,
         entry["recoverable_errors"] = int(entry.get("recoverable_errors", 0) or 0) + int(label == "recoverable_error")
         entry["last_event"] = label
         entry["last_change"] = round(change, 4)
+        category_results = {}
+        for name, category_weight in active_categories or [(categoria, 1.0)]:
+            category = categories.setdefault(str(name), {})
+            if not isinstance(category, dict):
+                category = {"delta": 0.0, "legacy_value": category}
+                categories[str(name)] = category
+            category_results[str(name)] = {"delta": category.get("delta", 0.0),
+                                           "peso": category_weight}
         _save_personal_scores(current)
-        return {"delta": round(new_delta, 4), "change": round(change, 4),
-                "label": label, "evidenze": entry["evidenze"]}
+        return {"generale": {"delta": round(new_delta, 4), "change": round(change, 4),
+                              "label": label, "evidenze": entry["evidenze"]},
+                "categorie": category_results}
 
 
 def _classify_outcome(result) -> tuple:
@@ -446,7 +516,7 @@ def _classify_outcome(result) -> tuple:
     return (1.0, 1.0, "useful_success") if useful else (0.0, 0.0, "neutral")
 
 
-def record_personal_outcome(model: str, categoria: str, evidence=None) -> dict:
+def record_personal_outcome(model: str, categoria: str, evidence=None, context=None) -> dict:
     """Apprende dall'esito reale della risposta/task, non dalla sola frequenza.
 
     - successo di un tool/task utile: premio pieno;
@@ -466,7 +536,11 @@ def record_personal_outcome(model: str, categoria: str, evidence=None) -> dict:
     label = ("useful_success" if signal > 0.25 else
              "recoverable_error" if signal < 0 else "failure")
     weight = min(1.0, sum(w for _, w, _ in classified) / len(classified))
-    return _save_outcome(model, categoria, signal, weight, label)
+    text = evidence.get("input", "") if isinstance(evidence, dict) else ""
+    features = _context_features(text, context or evidence.get("context"))
+    active = _active_categories(text, features, primary=categoria)
+    return _save_outcome(model, categoria, signal, weight, label,
+                         active_categories=active)
 
 
 def learn_from_user_feedback(text: str, context=None) -> dict:
@@ -487,11 +561,13 @@ def learn_from_user_feedback(text: str, context=None) -> dict:
     if any(marker in lower for marker in negative):
         return _save_outcome(_state["last"].get("scelto"),
                              _state["last"].get("categoria", "conversazione"),
-                             -1.0, 0.85, "user_negative")
+                             -1.0, 0.85, "user_negative",
+                             active_categories=_state["last"].get("categorie_attive"))
     if any(marker in lower for marker in positive):
         return _save_outcome(_state["last"].get("scelto"),
                              _state["last"].get("categoria", "conversazione"),
-                             1.0, 0.65, "user_positive")
+                             1.0, 0.65, "user_positive",
+                             active_categories=_state["last"].get("categorie_attive"))
     return {}
 
 
@@ -543,24 +619,28 @@ def _telemetry_costs(bench: dict) -> dict:
 
 
 def _score(bench: dict, modello: str, categoria: str, personal: dict,
-           telemetry_costs: dict, pool=None) -> tuple:
+           telemetry_costs: dict, pool=None, active_categories=None) -> tuple:
     """Score benchmark + delta personale appreso, penalizzato dal costo/token."""
     b = bench.get(modello) or DEFAULT_BENCHMARK.get(modello) or {}
     ufficiale = 0.6 * b.get(categoria, 7.0) + 0.4 * b.get("affidabilita", 7.0)
     p = personal.get(modello) or {}
-    personale_entry = p.get(categoria)
-    if isinstance(personale_entry, dict):
-        correzione_personale = max(-PERSONAL_DELTA_CAP, min(
-            PERSONAL_DELTA_CAP, float(personale_entry.get("delta", 0.0) or 0.0)))
-        personale = correzione_personale
-    elif isinstance(personale_entry, (int, float)):
-        # Compatibilita' con il vecchio file: valore storico -> influenza minima.
-        personale = float(personale_entry)
-        correzione_personale = max(-PERSONAL_DELTA_CAP, min(
-            PERSONAL_DELTA_CAP, (personale - 5.0) * 0.04))
-    else:
-        personale = None
-        correzione_personale = 0.0
+    general_entry = p.get("delta_generale")
+    general_delta = (float(general_entry.get("delta", 0.0) or 0.0)
+                     if isinstance(general_entry, dict) else 0.0)
+    general_delta = max(-PERSONAL_GENERAL_CAP, min(PERSONAL_GENERAL_CAP, general_delta))
+    categories = p.get("delta_categorie")
+    if not isinstance(categories, dict):
+        categories = {k: v for k, v in p.items()
+                      if k not in {"delta_generale", "delta_categorie"}}
+    category_contrib = {}
+    for name, category_weight in active_categories or [(categoria, 1.0)]:
+        entry = categories.get(name)
+        delta = float(entry.get("delta", 0.0) or 0.0) if isinstance(entry, dict) else 0.0
+        delta = max(-PERSONAL_CATEGORY_CAP, min(PERSONAL_CATEGORY_CAP, delta))
+        category_contrib[name] = round(delta * float(category_weight), 4)
+    correzione_personale = max(-PERSONAL_DELTA_CAP, min(
+        PERSONAL_DELTA_CAP, general_delta + sum(category_contrib.values())))
+    personale = correzione_personale if (general_entry is not None or categories) else None
     qualita = ufficiale + correzione_personale
     costs = [v[modello] for v in telemetry_costs.values() if modello in v]
 
@@ -595,7 +675,8 @@ def _score(bench: dict, modello: str, categoria: str, personal: dict,
     score = PESI["qualita"] * qualita + PESI["costo"] * max(0.0, 10.0 - costo_penalty)
     return (round(score, 3), round(ufficiale, 3),
             round(personale, 3) if personale is not None else None,
-            round(correzione_personale, 3), round(costo_k, 6))
+            round(correzione_personale, 3), round(costo_k, 6),
+            round(general_delta, 3), category_contrib)
 
 
 
@@ -664,18 +745,24 @@ def decide_model(user_input: str, context=None) -> dict:
         # diventato codice dopo una lettura, una diagnosi o un primo tool call.
         categoria, conf = "codice", max(conf, 0.90)
     features = _context_features(user_input, context)
+    active_categories = _active_categories(user_input, features, primary=categoria)
+    features["categorie_attive"] = active_categories
     pool = _pool_dinamico()
     personal = _personal_scores()
     telemetry_costs = _telemetry_costs(bench)
     score_details = {}
     base_scores = {}
     for m in pool:
-        base_scores[m], ufficiale, personale, correzione_personale, costo_k = _score(
-            bench, m, bench_cat, personal, telemetry_costs, pool=pool)
+        (base_scores[m], ufficiale, personale, correzione_personale, costo_k,
+         delta_generale, delta_categorie) = _score(
+            bench, m, bench_cat, personal, telemetry_costs, pool=pool,
+            active_categories=active_categories)
         score_details[m] = {
             "ufficiale": ufficiale,
             "personale": personale,
             "correzione_personale": correzione_personale,
+            "delta_generale": delta_generale,
+            "delta_categorie": delta_categorie,
             "costo_per_1000_token": costo_k,
         }
     scores = {m: round(base_scores[m] + _profile_bonus(m, features, categoria), 3) for m in pool}
@@ -716,7 +803,9 @@ def decide_model(user_input: str, context=None) -> dict:
     record = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "categoria": categoria, "confidenza": round(conf, 3),
-        "profilo": features, "context_epoch": _state["context_epoch"],
+        "profilo": features, "categorie_attive": active_categories,
+        "context_epoch": _state["context_epoch"],
+        "pesi": dict(PESI),
         "scores": scores, "score_details": score_details,
         "telemetry_cost_windows": telemetry_costs,
         "scelto": scelta, "best": best,

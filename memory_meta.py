@@ -61,7 +61,16 @@ def init_meta():
             c.close()
 
 def _get_session_id():
-    """ID sessione persistente (file .session_id), creato al primo uso."""
+    """ID sessione unificato con history_store: ogni istanza di Astral
+    (anche multi-instance nella stessa finestra) ha un SESSION_ID proprio,
+    cosi' chat, telemetria e usage restano tracciabili separatamente.
+    Fallback: file .session_id persistente per compatibilita' storica."""
+    try:
+        from history_store import SESSION_ID as _hist_sid
+        if _hist_sid:
+            return _hist_sid
+    except Exception:
+        pass
     f = os.path.join(BASE_DIR, ".session_id")
     try:
         if os.path.exists(f):

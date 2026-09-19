@@ -7,7 +7,8 @@ from datetime import datetime
 
 from core_io import console, log_error
 from llm_core import client as _shared_client
-from subagents.jobspec import get_ruolo, check_budget, check_depth
+from subagents.jobspec import get_ruolo, check_depth
+from llm_core import route_model
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(BASE, "subagents", "out")
@@ -61,14 +62,23 @@ def run_role(ruolo: str, contesto: str = "", depth: int = 0) -> dict:
     ok_d, msg_d = check_depth(depth)
     if not ok_d:
         return {"ok": False, "errore": msg_d}
+    # Il budget viene consumato qui, nel solo punto di esecuzione del job.
+    from subagents.jobspec import check_budget
     ok_b, msg_b = check_budget()
     if not ok_b:
         return {"ok": False, "errore": msg_b}
     ctx = _collect_context(r["tools"], contesto)
     prompt = PROMPT_SCOUT if ruolo == "scout" else PROMPT_REVIEWER
+    # Il subagent usa lo stesso routing dinamico del modello principale: il
+    # ruolo aggiunge segnali semantici, ma non impone un modello fisso.
+    routing_input = f"{r['descrizione']}\n{prompt}\n{contesto or ''}"
+    try:
+        modello = route_model(routing_input, context=[])
+    except Exception:
+        modello = r.get("modello_fallback", "deepseek/deepseek-v4-flash-0731")
     try:
         resp = _shared_client.chat.completions.create(
-            model=r["modello"],
+            model=modello,
             temperature=r["temp"],
             max_tokens=900,
             messages=[
@@ -90,4 +100,4 @@ def run_role(ruolo: str, contesto: str = "", depth: int = 0) -> dict:
             f.write(report)
     except Exception:
         pass
-    return {"ok": ok, "ruolo": ruolo, "report": report, "out_path": out_path}
+    return {"ok": ok, "ruolo": ruolo, "modello": modello, "report": report, "out_path": out_path}
