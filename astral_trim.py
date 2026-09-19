@@ -17,9 +17,10 @@ import os
 import sys
 
 try:
-    from memory_meta import next_global_counter
+    from memory_meta import next_global_counter, _get_session_id
 except Exception:
     next_global_counter = None
+    _get_session_id = None
 
 MAX_CONTENT_CHARS = 1500    # cap storico di get_history
 CHECKPOINT_MAX_CHARS = 200  # cap storico del checkpoint
@@ -180,13 +181,21 @@ def _ledger_dump(ledger, cycle):
 
 def breathing_trim(messages, turn=None):
     """Trimmer respiratorio: finestra e budget sinusoidali, checkpoint a
-    ledger di fatti. Il ciclo e' globale/persistente; il ledger resta locale.
+    ledger di fatti. Il ciclo e' per-sessione (chiave con session_id in
+    memoria_meta): sessioni diverse respirano in fasi indipendenti, un
+    riavvio della STESSA sessione riprende la fase precedente. Il ledger
+    resta locale.
     """
     global _TURNS_SEEN
+    _sid = (_get_session_id() if _get_session_id is not None else None)
+    _key = f"breathing_turn:{_sid or 'default'}"
     if turn is None:
         if next_global_counter is not None:
+            # Chiave per-sessione: una seconda chat/istanza NON deve alterare
+            # la fase respiratoria della prima (session_id persistente =
+            # continuita' tra riavvii della stessa sessione).
             # Il valore restituito e' 1-based: il primo turno usa fase 0.
-            global_turn = next_global_counter("breathing_turn")
+            global_turn = next_global_counter(_key)
             if global_turn is not None:
                 turn = global_turn - 1
         if turn is None:
@@ -260,7 +269,8 @@ def breathing_trim(messages, turn=None):
                       == int(BREATH_PERIOD * 0.75) else "turn",
                       "turn": turn, "cycle": cycle,
                       "facts": _ledger_total(ledger),
-                      "window": window, "chars": total})
+                      "window": window, "chars": total,
+                      "sid": _sid})
     return out
 
 
