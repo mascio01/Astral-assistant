@@ -12,8 +12,8 @@ import threading
 
 # ASTRAL_DIAG2_BEGIN
 if __name__ == "__main__":
-    import sys as _sys, inspect as _ins
-    _sys.path.insert(0, r"C:\Users\masci\Astral")
+    import sys as _sys, inspect as _ins, os as _os
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
     try:
         import tools_exec as _te
         _sys.stdout.write("DIAG>>import tools_exec OK\n")

@@ -8,7 +8,47 @@ from core_io import BASE_DIR, _scan_dir_fast, cap_output
 from memory_store import recall_get, recall_list, recall_save
 from tools_patch import apply_code_patch, test_python_file
 from exec_logger import log_execution
+import json
 import time
+
+
+# --- Guardia anti-loop (strutturale, non solo a prompt) ----------------------
+# Se lo stesso tool viene invocato con argomenti identici piu' volte di seguito,
+# rieseguirlo produce lo stesso output: il modello resta in loop bruciando token.
+# Qui la terza chiamata identica consecutiva viene rifiutata con un avviso.
+_LOOP_MIN_REPEATS = 3
+_recent_calls = []
+
+
+def _call_signature(name, args):
+    try:
+        return (name, json.dumps(args, sort_keys=True, ensure_ascii=False, default=str))
+    except Exception:
+        return (name, repr(args))
+
+
+def _loop_guard(name, args):
+    """Ritorna un dict di errore se la chiamata e' un loop, altrimenti None."""
+    sig = _call_signature(name, args)
+    _recent_calls.append(sig)
+    if len(_recent_calls) > _LOOP_MIN_REPEATS * 4:
+        del _recent_calls[:-_LOOP_MIN_REPEATS * 4]
+    streak = 0
+    for s in reversed(_recent_calls):
+        if s == sig:
+            streak += 1
+        else:
+            break
+    if streak >= _LOOP_MIN_REPEATS:
+        return {
+            "error": (
+                f"Loop rilevato: '{name}' con gli stessi argomenti e' gia' stato "
+                f"eseguito {streak} volte. Non rieseguirlo: usa recall con l'hash "
+                "dell'output troncato, oppure rileggi in blocchi piu' piccoli."
+            ),
+            "loop_guard": True,
+        }
+    return None
 
 tools = [
     {
@@ -113,8 +153,16 @@ tools = [
 ]
 
 def execute_tool(name, args):
-    """Wrapper n8n Pattern 3: timing + log JSONL; Pattern 2: 1 retry su eccezione imprevista."""
+    """Wrapper n8n Pattern 3: timing + log JSONL; Pattern 2: 1 retry su eccezione imprevista.
+
+    Prima di eseguire applica la guardia anti-loop: la terza invocazione identica
+    consecutiva viene rifiutata senza eseguire nulla.
+    """
     t0 = time.perf_counter()
+    guard = _loop_guard(name, args)
+    if guard is not None:
+        log_execution(name, args, error=guard["error"], duration_ms=0.0)
+        return guard
     try:
         res = _execute_tool_impl(name, args)
     except Exception as e1:

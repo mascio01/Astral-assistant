@@ -118,14 +118,21 @@ _telemetry_enabled = True
 # Il primo messaggio non deve mai aspettare dati remoti: il benchmark reale
 # viene idratato in background mentre la richiesta e' gia' in viaggio.
 _BENCH_CACHE = None
-_BENCH_CACHE_TS = 0.0
+# -inf: il primo controllo di scadenza deve SEMPRE risultare scaduto, cosi' il
+# benchmark reale viene idratato al primo giro anche su macchine accese da poco.
+# Con 0.0 e TTL 24h, time.monotonic() < 86400 rendeva now - ts < TTL e il refresh
+# non partiva mai: il routing restava sui pesi DEFAULT_BENCHMARK.
+_BENCH_CACHE_TS = float("-inf")
 _BENCH_LOADING = False
 _POOL_CACHE = list(ROUTING_POOL)
-_POOL_CACHE_TS = 0.0
+_POOL_CACHE_TS = float("-inf")
 _TELEMETRY_COST_CACHE = None
 _TELEMETRY_COST_CACHE_TS = 0.0
 # Benchmark e pool cambiano con il sync giornaliero; solo la telemetria resta breve.
 _BENCH_CACHE_TTL = 24 * 3600.0
+# Se l'idratazione fallisce (rete assente / get_models() vuoto) non ha senso
+# aspettare 24h: si ritenta dopo questo intervallo.
+_BENCH_RETRY_TTL = 60.0
 _ROUTING_CACHE_TTL = 20.0
 
 
@@ -386,12 +393,14 @@ def _hydrate_bench() -> None:
     """Carica benchmark e pool una volta al giorno, senza bloccare il REPL."""
     global _BENCH_CACHE, _BENCH_CACHE_TS, _BENCH_LOADING
     global _POOL_CACHE, _POOL_CACHE_TS
+    ok = False
     try:
         from benchmark_data import get_models, pool_suggerito
         models = get_models()
         if models:
             _BENCH_CACHE = models
             _BENCH_CACHE_TS = time.monotonic()
+            ok = True
             try:
                 suggested = pool_suggerito()
                 dynamic_pool = []
@@ -407,6 +416,9 @@ def _hydrate_bench() -> None:
     except Exception as e:
         log_error("routing_engine/bench", e)
     finally:
+        if not ok:
+            # Nessun dato reale caricato: ritenta tra _BENCH_RETRY_TTL, non tra 24h.
+            _BENCH_CACHE_TS = time.monotonic() - _BENCH_CACHE_TTL + _BENCH_RETRY_TTL
         _BENCH_LOADING = False
 
 

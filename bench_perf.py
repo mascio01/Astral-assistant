@@ -5,7 +5,7 @@ from exec_logger import read_executions
 latenze = []
 for i in range(5):
     t0 = time.perf_counter()
-    r = execute_tool('scan_storage', {'folder_path': 'C:\\Users\\masci\\Astral', 'min_size_mb': 100})
+    r = execute_tool('scan_storage', {'folder_path': BASE_DIR, 'min_size_mb': 100})
     dt = (time.perf_counter() - t0) * 1000
     latenze.append(dt)
     print(f'run {i+1}: {dt:.1f} ms | ok={isinstance(r, (dict, list, str))}')

@@ -437,16 +437,16 @@ def _maybe_sync(force: bool = False):
         except Exception as e:
             log_error("benchmark_data/sync", e)
         finally:
-            if sys.is_finalizing():
-                return  # interprete in shutdown: non toccare stato/lock
-            try:
-                with _lock:
-                    _state["synced"] = time.time()
-                    _state["thread"] = None
-                    _state["models"] = None  # ricostruzione al prossimo get_models
-                    _write_state()
-            except Exception:
-                pass
+            # interprete in shutdown: non toccare stato/lock
+            if not sys.is_finalizing():
+                try:
+                    with _lock:
+                        _state["synced"] = time.time()
+                        _state["thread"] = None
+                        _state["models"] = None  # ricostruzione al prossimo get_models
+                        _write_state()
+                except Exception:
+                    pass
 
     with _lock:
         if _state.get("thread") is not None:

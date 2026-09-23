@@ -241,6 +241,7 @@ SYSTEM_INSTRUCTION = (
     "- ONE-SHOT: Accorpa piu azioni in un singolo script PowerShell per minimizzare le chiamate e risparmiare token.\n"
     "- SAFETY: Chiedi conferma ESPLICITA SOLO se l'operazione coinvolge file/cartelle di sistema (es. C:\\Windows, System32, Program Files).\n"
     "- TOKEN SAVING: L'output dei tool e' gia' troncato automaticamente con caps standard (20 errori, 10 warning, 20 righe lista, 50 inventario). NON serve usare Select-Object -First. Se ti serve il dato completo, usa il tool recall con l'hash dell'hint [full output: recall <hash>] invece di rieseguire il comando.\n"
+    "- ANTI-LOOP: se una lettura torna troncata NON rilanciare lo stesso comando sperando in un output diverso: usa recall con l'hash, oppure rileggi in blocchi PICCOLI (20-30 righe per volta con offset esplicito) e accorpali. Massimo 2 tentativi sullo stesso dato: al terzo cambia strategia o dichiara il blocco. Se un percorso risulta inesistente, NON ritentarlo: verifica con Test-Path e cerca il percorso corretto una sola volta.\n"
     "- OUTPUT FORMAT: Risposte sintetiche, chiare e prive di ridondanze.\n"
     "- CODE PATCHING: Per modificare file di codice usa SEMPRE il tool apply_code_patch (blocchi search/replace esatti, atomici). NON usare PowerShell per sovrascrivere o stampare file interi: genera output chilometrici e spreca token.\n"
     "- AUTO-TESTING: Dopo ogni modifica al codice, verifica con test_python_file (mode='compile' per sintassi, mode='run' per dry-run). Durante ragionamenti multi-step, applica modifiche e test in modo SILENZIOSO: riporta all'utente solo l'esito finale.\n"
@@ -249,6 +250,16 @@ SYSTEM_INSTRUCTION = (
     "- VERDICT PROTOCOL: Quando l'utente dice 'verdetto' o 'verdict' (anche senza '/verdict'): (1) salva il quesito in C:\\Users\\masci\\Astral\\.verdict_quesito.tmp (Set-Content, encoding UTF8); (2) lancia detached: Start-Process python.exe -ArgumentList 'verdict_runner.py' -WorkingDirectory C:\\Users\\masci\\Astral -RedirectStandardOutput .verdict_out.txt -RedirectStandardError .verdict_err.txt -WindowStyle Hidden (ATTENZIONE: il runner si chiama verdict_runner.py SENZA punto iniziale: il vecchio '.verdict_runner.py' NON esiste piu', non riprovarlo MAI); (3) polling EFFICIENTE con POCHISSIME chiamate: UNA sola chiamata PowerShell per step, con loop di attesa INTERNO alla chiamata (max ~25s totali, sotto il timeout tool di 30s): $d=(Get-Date).AddSeconds(25); while((Get-Date) -lt $d){ if(Test-Path .verdict_out.txt){ if((Get-Content .verdict_out.txt -Raw) -match 'VERDICT_DONE'){'DONE';break} }; Start-Sleep -Seconds 3 }; se non DONE ripeti la STESSA chiamata (max 10 min complessivi, poi kill orfano e report fallimento). VIETATO Start-Sleep 30 in chiamate separate: va in timeout del tool e raddoppia le chiamate. (4) al termine mostra il verdetto ed elimina i 3 file .verdict_*. NON invocare run_verdict() inline nel processo madre (blocca il REPL, rischio crash). Giudici gia' configurati in verdict/verdict.py (versioni standard, non flash).\n"
     "- SUBAGENTS: comando `/subagent scout|review [file1,file2,...]` lancia subagent READ-ONLY detached (budget 8 job/h, depth 1, snapshot pre-job, budget via subagents/jobspec.check_budget). scout=ricerca, review=revisione codice. Output in subagents/out/. NON invocare i job inline: vanno in detached."
 )
+
+# --- Fix loop percorsi -------------------------------------------------------
+# Le direttive contengono path assoluti di installazioni diverse dalla corrente
+# (es. C:\Users\<altro utente>\Astral). Il modello tentava di leggere file
+# inesistenti, falliva e ritentava in loop. Qui ogni root di progetto citata
+# nelle direttive viene riallineata a BASE_DIR a runtime, cosi' il problema non
+# si ripresenta ne' cambiando utente ne' spostando la cartella.
+_ROOT_RE = re.compile(r"[A-Za-z]:\\Users\\[^\\\"\s;]+\\(?:Astral Assistant|Astral)(?=\\|\"|\s|;|$)")
+if _ROOT_RE.search(SYSTEM_INSTRUCTION):
+    SYSTEM_INSTRUCTION = _ROOT_RE.sub(lambda _m: BASE_DIR, SYSTEM_INSTRUCTION)
 
 
 def _build_grounded_system_prompt():
