@@ -301,9 +301,68 @@ def run_meta_maintenance():
 
 
 MAX_SESSIONS = 5  # cap sessioni simultanee
+# Palette stabile per distinguere le sessioni concorrenti nel terminale.
+_SESSION_COLORS = (
+    "dodger_blue1",
+    "medium_purple1",
+    "spring_green1",
+    "dark_orange",
+    "bright_cyan",
+)
 
-# Colore del prompt per slot di sessione: 1a=blu, poi ognuna diversa
-_SESSION_COLORS = ["dodger_blue1", "magenta1", "spring_green1", "gold1", "orange_red1"]
+# Il driver CUA non deve partire al logon: viene gestito insieme al ciclo di vita
+# delle sessioni Astral. La task "cua-driver-serve" resta quindi disabilitata.
+_CUA_DRIVER_EXE = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")),
+    "Programs", "Cua", "cua-driver", "bin", "cua-driver.exe",
+)
+
+
+def _cua_driver_running():
+    """Ritorna True se il processo CUA driver e' gia' attivo."""
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq cua-driver.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=3,
+            creationflags=flags,
+        )
+        return "cua-driver.exe" in (result.stdout or "").lower()
+    except Exception:
+        return False
+
+
+def _start_cua_driver():
+    """Avvia il driver solo quando esiste almeno una sessione Astral."""
+    if _cua_driver_running() or not os.path.isfile(_CUA_DRIVER_EXE):
+        return
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(
+            [_CUA_DRIVER_EXE, "serve"],
+            cwd=os.path.expanduser("~"),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+    except Exception as e:
+        _early_log("start cua-driver", e)
+
+
+def _stop_cua_driver_if_idle():
+    """Chiude il driver quando l'ultima sessione Astral e' terminata."""
+    if not _cua_driver_running():
+        return
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(
+            ["taskkill", "/IM", "cua-driver.exe", "/T", "/F"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=5, creationflags=flags,
+        )
+    except Exception as e:
+        _early_log("stop cua-driver", e)
 
 
 def _pid_alive(pid):
@@ -423,7 +482,18 @@ def _claim_session_slot():
             except Exception:
                 pass
 
-        atexit.register(_cleanup)
+        def _cleanup_with_driver():
+            _cleanup()
+            # Il marker e' gia' stato aggiornato: se non resta alcuna sessione,
+            # il driver puo' essere chiuso senza interferire con altre sessioni.
+            try:
+                if not _active_records():
+                    _stop_cua_driver_if_idle()
+            except Exception:
+                pass
+
+        atexit.register(_cleanup_with_driver)
+        _start_cua_driver()
         return slot
     except Exception:
         return 0  # fallback: comportamento della prima sessione
@@ -544,6 +614,9 @@ def main():
                     f"  [bold cyan]/meta-stats[/]  statistiche meta [giorni]\n"
                     f"  [bold cyan]/meta-pin[/]    pin/unpin ref  |  [bold cyan]/meta-tag[/] <ref> <tags>\n"
                     f"  [bold cyan]/prune[/]       pulizia memoria  |  [bold cyan]/audit[/] raw/meta\n\n"
+                    f"[bold]TASK[/]\n"
+                    f"  [bold cyan]/task[/]        elenco task  |  [bold cyan]/task-sync[/] riconcilia git\n"
+                    f"  [bold cyan]/task-new[/] <id> <titolo>  |  [bold cyan]/task-test[/] <id>  |  [bold cyan]/task-done[/] <id>\n\n"
                     f"[bold]SISTEMA[/]\n"
                     f"  [bold cyan]/self[/]        selfmap: [dim]fn|cls|file[/]\n"
                     f"  [bold cyan]/repair[/]      auto-riparazione  |  [bold cyan]/repair-graph[/]\n"
@@ -801,6 +874,10 @@ def main():
                     console.print(ui_error(f"[!] /audit error: {_e_au}"))
                 continue
 
+            if lower_input.startswith('/task'):
+                _handle_task_command(user_input)
+                continue
+
             _v_request = _parse_verdict_request(user_input)
             if _v_request is not None:
                 _v_profilo, quesito = _v_request
@@ -831,6 +908,12 @@ def main():
                                 f"Runner verdetto assente: {_runner_file}. "
                                 "Ripristinare verdict_runner.py prima di procedere."
                             )
+                        try:
+                            from verdict.verdict import estimate_verdict_timeout
+                            _verdict_timeout = estimate_verdict_timeout(_v_profilo, verdict_input)
+                        except Exception:
+                            # Fallback prudente solo se il calcolo adattivo non e' disponibile.
+                            _verdict_timeout = 600 if _v_profilo == "lite" else 480
                         _vp = subprocess.Popen(
                             [sys.executable, _runner_file, _v_profilo],
                             cwd=BASE_DIR,
@@ -839,8 +922,9 @@ def main():
                             stderr=subprocess.DEVNULL,
                         )
                         _verdict_pid = _vp.pid
-                        # Il silenzio dei file di output NON è un timeout:
-                        # finché il runner è vivo non va mai terminato automaticamente.
+                        # Timeout adattivo: profilo, complessita' del dossier e latenza
+                        # EMA dei giudici. Il processo viene chiuso solo oltre il budget.
+                        _verdict_deadline = time.time() + _verdict_timeout
                         next_status = time.time() + 120
                         done = False
                         while True:
@@ -858,8 +942,7 @@ def main():
                                         console.print(ui_error(f"[!] Verdetto fallito: {error_text[-1200:]}"))
                                     done = True
                                     break
-                            # Se il processo è terminato senza il marker, è un errore reale;
-                            # se è vivo, invece, continuiamo ad attendere anche oltre 10 minuti.
+                            # Se il processo è terminato senza il marker, è un errore reale.
                             if _vp.poll() is not None:
                                 error_text = ""
                                 if os.path.exists(err_file):
@@ -867,6 +950,17 @@ def main():
                                         error_text = f.read().strip()
                                 detail = error_text[-1200:] if error_text else f"runner terminato (codice {_vp.returncode}) senza VERDICT_DONE"
                                 console.print(f"[bold orange_red1][!] Verdetto fallito:[/] {escape(detail)}")
+                                done = True
+                                break
+                            if time.time() >= _verdict_deadline:
+                                try:
+                                    _vp.kill()
+                                except Exception:
+                                    pass
+                                console.print(ui_error(
+                                    f"[!] Verdetto {_v_profilo} oltre il timeout adattivo "
+                                    f"({_verdict_timeout}s; complessita' e velocita' storica considerate)."
+                                ))
                                 done = True
                                 break
                             if time.time() >= next_status:
@@ -1220,6 +1314,77 @@ def main():
                 console.print("[dim]Autoriparazione avviata in background; la sessione resta attiva.[/dim]")
 
 
+def _handle_task_command(user_input):
+    """Gestisce i comandi /task* (registro task git+SQLite).
+
+    Sottocomandi:
+      /task                 elenco task
+      /task-new <id> <titolo>   crea task + branch
+      /task-test <id>       esegue la suite e marca test_passed (verificato)
+      /task-done <id>       marca integrata (verifica hash suite)
+      /task-sync            riconcilia registro <-> git
+    """
+    try:
+        import task_tracker as tt
+    except Exception as e:
+        console.print(ui_error(f"[!] task_tracker non disponibile: {e}"))
+        return
+    parts = user_input.split(None, 2)
+    sub = parts[0].lower()
+    try:
+        if sub == '/task':
+            rows = tt.list_active()
+            if not rows:
+                console.print("[dim]Nessuna task registrata. Usa /task-new <id> <titolo>.[/dim]")
+                return
+            t = ui_table(["ID", "Titolo", "Stato", "Test", "Integrata"],
+                         [[str(r['id']), r['title'], r['status'],
+                           "si" if r['test_passed'] else "no",
+                           r['ts_integrated'] or "-"] for r in rows])
+            console.print(t)
+        elif sub == '/task-new':
+            if len(parts) < 3 or not parts[1].isdigit():
+                console.print(ui_error("[!] Uso: /task-new <id> <titolo>"))
+                return
+            res = tt.create_task(int(parts[1]), parts[2])
+            if res.get('error'):
+                console.print(ui_error(f"[!] {res['error']}"))
+            else:
+                console.print(f"[green][*] Task #{res['id']} creata, branch {res['branch']}.[/green]")
+        elif sub == '/task-test':
+            if len(parts) < 2 or not parts[1].isdigit():
+                console.print(ui_error("[!] Uso: /task-test <id>"))
+                return
+            console.print("[dim]Esecuzione suite di test...[/dim]")
+            res = tt.mark_test_passed(int(parts[1]))
+            if res.get('ok'):
+                console.print(f"[green][*] Test verdi per task #{res['id']} "
+                              f"(hash suite {res['suite_hash']}).[/green]")
+            else:
+                console.print(ui_error(f"[!] Test falliti: {res.get('detail')}"))
+        elif sub == '/task-done':
+            if len(parts) < 2 or not parts[1].isdigit():
+                console.print(ui_error("[!] Uso: /task-done <id>"))
+                return
+            res = tt.mark_integrated(int(parts[1]))
+            if res.get('error'):
+                console.print(ui_error(f"[!] {res['error']}"))
+            else:
+                console.print(f"[green][*] Task #{res['id']} integrata.[/green]")
+                for w in res.get('warnings', []):
+                    console.print(f"[yellow][!] {w}[/yellow]")
+        elif sub == '/task-sync':
+            rep = tt.sync_from_git()
+            console.print(f"[bold cyan]Task sync[/]: creati={rep['created']} "
+                          f"integrati={rep['integrated']}")
+            for w in rep['warnings']:
+                console.print(f"[yellow][!] {w}[/yellow]")
+        else:
+            console.print(ui_error("[!] Sottocomandi: /task /task-new /task-test /task-done /task-sync"))
+    except Exception as e:
+        console.print(ui_error(f"[!] /task error: {e}"))
+
+
 # ------------------------------------------------------------------ Guardie anti-loop
 # 1) Lock single-instance: impedisce che due astral.py girino insieme (causa di
 #    retry/polling duplicati e spin-loop). 2) Watchdog CPU: rileva spin-loop e
@@ -1273,6 +1438,16 @@ def _start_loop_watchdog():
 if __name__ == "__main__":
     _start_loop_watchdog()
     init_db()
+    try:
+        import task_tracker as _tt
+        _tt.init_tasks()
+        _rep = _tt.sync_from_git()  # riconciliazione obbligatoria all'avvio
+        if _rep.get('created') or _rep.get('integrated') or _rep.get('warnings'):
+            console.print(f"[dim][task] sync: creati={_rep['created']} "
+                          f"integrati={_rep['integrated']} "
+                          f"avvisi={len(_rep['warnings'])}[/dim]")
+    except Exception:
+        pass  # mai bloccare l'avvio per il tracker
     _bs = bootstrap_meta()
     console.print(f"[dim][meta] bootstrap: scanned={_bs.get('scanned', 0)} imported={_bs.get('imported', 0)} skipped={_bs.get('skipped', 0)} error={_bs.get('error', 0)}[/dim]")
     try:
@@ -1280,6 +1455,7 @@ if __name__ == "__main__":
 
         selfmap.generate()  # indice semantico completo ad ogni avvio
         selfmap.refresh_bootstrap()  # contesto minimo derivato e verificabile
+        selfmap.refresh_knowledge_map()  # indice separato della conoscenza distribuita
         selfmap.start_watcher()  # sincronizzazione continua durante il runtime
     except Exception:
         pass  # mai bloccare l'avvio per la mappa

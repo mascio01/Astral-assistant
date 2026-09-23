@@ -82,14 +82,14 @@ _PERSONAL_LOCK = threading.RLock()
 # per gruppo, ma il candidato e' sempre selezionato dentro questo stesso set.
 ROUTING_POOL = [
     "deepseek/deepseek-v4-flash-0731",
-    "z-ai/glm-5.3-flash",
+    "deepseek/deepseek-v4.1-flash",
     "openai/gpt-5.6-luna",
 ]
 
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico)
 DEFAULT_BENCHMARK = {
     "deepseek/deepseek-v4-flash-0731": {"conversazione": 8.0, "codice": 7.0, "affidabilita": 8.5, "costo": 9.0},
-    "z-ai/glm-5.3-flash": {"conversazione": 7.0, "codice": 8.5, "affidabilita": 8.0, "costo": 9.0},
+    "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 7.87, "affidabilita": 7.0, "costo": 8.5},
     "openai/gpt-5.6-sol": {"conversazione": 9.5, "codice": 9.0, "affidabilita": 9.5, "costo": 5.0},
     "deepseek/deepseek-v4-pro": {"conversazione": 8.5, "codice": 8.0, "affidabilita": 8.0, "costo": 6.5},
     "z-ai/glm-5.3": {"conversazione": 8.0, "codice": 8.5, "affidabilita": 8.5, "costo": 7.0},
@@ -324,24 +324,24 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     """Modulatore operativo (scala score 0-10), volutamente piccolo rispetto ai benchmark."""
     bonus = 0.0
     is_deepseek = model == "deepseek/deepseek-v4-flash-0731"
-    is_glm = model == "z-ai/glm-5.3-flash"
+    is_ds41 = model == "deepseek/deepseek-v4.1-flash"
     is_luna = model == "openai/gpt-5.6-luna"
     if features["quick"]:
-        bonus += 0.22 if (is_deepseek or is_glm) else -0.08
+        bonus += 0.22 if (is_deepseek or is_ds41) else -0.08
     if features["long"] or features["history_chars"] > 18000:
         bonus += 0.35 if is_luna else (0.12 if is_deepseek else -0.04)
     if features["code"]:
-        bonus += 0.75 if is_glm else (0.18 if is_luna else -0.12)
+        bonus += 0.75 if is_ds41 else (0.18 if is_luna else -0.12)
     if features.get("tool_phase") == "codice":
         # Durante una modifica gia' avviata il cambio deve essere applicabile
         # subito: non lasciamo che l'isteresi mantenga il modello conversazionale.
-        bonus += 0.55 if is_glm else (-0.10 if is_deepseek else 0.12)
+        bonus += 0.55 if is_ds41 else (-0.10 if is_deepseek else 0.12)
     if features["reasoning"]:
         bonus += 0.30 if is_luna else 0.05
     if features["action"]:
-        bonus += 0.12 if is_glm else 0.04
+        bonus += 0.12 if is_ds41 else 0.04
     if features["changed"]:
-        bonus += 0.08 if (is_luna or is_glm) else 0.0
+        bonus += 0.08 if (is_luna or is_ds41) else 0.0
     # Continuità: evita di cambiare IA per una semplice prosecuzione del filo.
     if features["overlap"] >= 0.15 and model == _state.get("previous"):
         bonus += 0.22

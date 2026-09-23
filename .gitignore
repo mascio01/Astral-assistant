@@ -77,11 +77,20 @@ backups/
 archive/root_cleanup/
 learn_code_repair
 progetti/maestro-flow-src
+astralBak.py
+# Script e file personali non correlati al progetto
+survivalist_table.ct
+gen_turni_pulizia.py
 
 # Runtime e artefatti diagnostici locali
 .session_id
 config.db
 archive/diagnostics/
+.repair_active.lock
+.verdict_latency.json
+# Knowledge Map: vista generata da selfmap.py (le fonti restano versionate)
+knowledge_map.json
+knowledge_map.md
 
 chat_history_*.json
 _*.py

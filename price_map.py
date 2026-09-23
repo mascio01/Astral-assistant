@@ -20,6 +20,7 @@ PRICES = {
     "deepseek-v4-flash-latest": (0.0352, 0.1056),   # alias '~...-latest' SCONTATO (OpenRouter)
     "deepseek": (0.27, 1.10),
     "glm-5.3-flash": (0.10, 0.30),
+    "deepseek-v4.1-flash": (0.15, 0.60),
     "glm": (0.60, 2.20),
     "qwen": (0.15, 0.60),
     "llama": (0.10, 0.40),

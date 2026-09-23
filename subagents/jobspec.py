@@ -24,7 +24,7 @@ RUOLI = {
         "descrizione": "Revisione avversariale di un diff/patch: rischi, bug, regressioni.",
         "tools": ["read_file", "search"],
         # Fallback solo se il router dinamico non e' disponibile.
-        "modello_fallback": "z-ai/glm-5.3-flash",
+        "modello_fallback": "deepseek/deepseek-v4.1-flash",
         "temp": 0.4,
     },
 }
