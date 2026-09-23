@@ -87,6 +87,9 @@ chat_history_*.json
 _*.py
 _*.txt
 _*.json
+# Eccezione: il supporto condiviso della suite di test e' codice versionato.
+# Senza di esso i test_*.py non girano su un clone (la regola _*.py lo escludeva).
+!_test_support.py
 .astral_sessions.lock*
 .repair_last.json
 verdict/archive/
