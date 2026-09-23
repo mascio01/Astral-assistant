@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import ipaddress
 import re
+import socket
 import time
 import urllib.robotparser
 from dataclasses import dataclass, field, asdict
@@ -42,6 +44,62 @@ FETCH_TIMEOUT = 20.0      # secondi
 MIN_TEXT_LEN = 500        # sotto questa soglia: probabile pagina JS-rendered
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+
+# --------------------------------------------------------------- guardia SSRF
+# [FIX#7] Gli URL possono arrivare dal modello LLM: vanno considerati input
+# non fidato. Ammettiamo solo http/https verso host che risolvono a IP
+# pubblici, bloccando loopback, reti private, link-local (169.254/169.254
+# cloud metadata), multicast, reserved e unspecified.
+_ALLOWED_SCHEMES = ("http", "https")
+
+
+def _is_forbidden_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True
+    return (ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
+
+def validate_url(url: str) -> tuple:
+    """[FIX#7] Guardia anti-SSRF. Ritorna (ok: bool, motivo: str).
+
+    Controlla schema, assenza di credenziali, e risoluzione DNS: ogni IP
+    associato all'host deve essere pubblico. Va invocata PRIMA di ogni fetch
+    e anche sui redirect seguiti dal client HTTP.
+    """
+    if not url or not str(url).strip():
+        return False, "URL vuoto"
+    try:
+        parts = urlsplit(str(url).strip())
+    except Exception as e:
+        return False, f"URL non parsabile: {type(e).__name__}"
+    scheme = (parts.scheme or "").lower()
+    if scheme not in _ALLOWED_SCHEMES:
+        return False, f"schema non consentito: '{parts.scheme}' (solo http/https)"
+    if parts.username or parts.password:
+        return False, "credenziali nell'URL non consentite"
+    host = parts.hostname
+    if not host:
+        return False, "host mancante nell'URL"
+    try:
+        port = parts.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return False, "porta non valida nell'URL"
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except Exception as e:
+        return False, f"host non risolvibile: {type(e).__name__}"
+    if not infos:
+        return False, f"host '{host}' senza indirizzi"
+    for info in infos:
+        addr = info[4][0]
+        if _is_forbidden_ip(addr):
+            return False, (f"host '{host}' risolve a indirizzo non pubblico "
+                           f"({addr}): richiesta bloccata")
+    return True, ""
 
 
 # ----------------------------------------------------------------- risultati
@@ -89,12 +147,20 @@ class HttpxBackend(ScrapeBackend):
     name = "httpx-static"
 
     def fetch(self, url: str, headers: dict | None = None) -> FetchResponse:
+        # [FIX#7] validazione SSRF nel backend (non solo nel gateway)
+        ok, why = validate_url(url)
+        if not ok:
+            raise ValueError(f"URL bloccato: {why}")
         h = {"User-Agent": UA, "Accept-Language": "it-IT,it;q=0.9,en;q=0.8"}
         if headers:
             h.update(headers)
         with httpx.Client(headers=h, follow_redirects=True,
                           timeout=FETCH_TIMEOUT) as client:
             r = client.get(url)
+            # [FIX#7] ogni redirect viene rivalidato prima di usare il contenuto
+            ok_final, why_final = validate_url(str(r.url))
+            if not ok_final:
+                raise ValueError(f"redirect bloccato: {why_final}")
             return FetchResponse(r.status_code, r.text,
                                  r.headers.get("content-type", ""))
 
@@ -106,12 +172,21 @@ class CurlCffiBackend(ScrapeBackend):
     name = "curl_cffi-chrome"
 
     def fetch(self, url: str, headers: dict | None = None) -> FetchResponse:
+        # [FIX#7] validazione SSRF nel backend (non solo nel gateway)
+        ok, why = validate_url(url)
+        if not ok:
+            raise ValueError(f"URL bloccato: {why}")
         from curl_cffi import requests as cr
         h = {"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"}
         if headers:
             h.update(headers)
         r = cr.get(url, headers=h, impersonate="chrome",
                    timeout=FETCH_TIMEOUT, allow_redirects=True)
+        # [FIX#7] rivalidazione della URL finale dopo i redirect
+        final_url = getattr(r, "url", url)
+        ok_final, why_final = validate_url(str(final_url))
+        if not ok_final:
+            raise ValueError(f"redirect bloccato: {why_final}")
         return FetchResponse(r.status_code, r.text,
                              r.headers.get("content-type", ""))
 
@@ -270,6 +345,11 @@ def scrape(url: str, refresh: bool = False, use_cache: bool = True,
     t0 = time.time()
     res = ScrapeResult(url=url,
                        backend=backend.name if backend else "httpx+trafilatura")
+    # [FIX#7] la guardia SSRF precede cache, robots e fetch
+    _ok, _why = validate_url(url)
+    if not _ok:
+        res.errore = f"URL bloccato dalla guardia SSRF: {_why}"
+        return res
     if use_cache and not refresh and not keep_html:
         hit = _cache_load(url)
         if hit:

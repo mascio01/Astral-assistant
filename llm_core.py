@@ -25,30 +25,57 @@ import collections
 
 # --- Rate Limiter: sliding window (anti-boom) ---------------------------------
 _CALL_TIMESTAMPS = collections.deque()
+_RATE_LOCK = threading.Lock()   # [FIX#2] protegge la deque da accessi concorrenti
+
+_RATE_DEFAULT_MAX = 35
+_RATE_DEFAULT_WINDOW = 60
 
 
 def _get_rate_config():
-    """Legge i parametri del rate limiter dalla config persistente (SQLite)."""
-    max_calls = int(get_config("rate_limit_max_calls", "35"))
-    window = int(get_config("rate_limit_window_seconds", "60"))
+    """Legge e VALIDA i parametri del rate limiter dalla config persistente.
+
+    [FIX#3] Valori non numerici, non finiti o <= 0 non devono piu' provocare
+    IndexError su _CALL_TIMESTAMPS[0]: in caso di config invalida si applica
+    il default documentato con un warning esplicito.
+    """
+    def _positive_int(raw, default, label):
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            console.print(f"[yellow][rate-limit] {label}='{raw}' non valido: uso default {default}.[/yellow]")
+            return default
+        if value <= 0:
+            console.print(f"[yellow][rate-limit] {label}={value} non valido: uso default {default}.[/yellow]")
+            return default
+        return value
+
+    max_calls = _positive_int(get_config("rate_limit_max_calls", str(_RATE_DEFAULT_MAX)),
+                              _RATE_DEFAULT_MAX, "rate_limit_max_calls")
+    window = _positive_int(get_config("rate_limit_window_seconds", str(_RATE_DEFAULT_WINDOW)),
+                           _RATE_DEFAULT_WINDOW, "rate_limit_window_seconds")
     return max_calls, window
 
 
 def _check_rate_limit():
-    """Sliding window rate limiter. Parametri N/W letti dinamicamente dalla config store."""
+    """Sliding window rate limiter. Parametri N/W letti dinamicamente dalla config store.
+
+    [FIX#2] L'intera sezione critica (pruning + decisione + append) e' protetta
+    da lock: piu' thread non possono piu' superare insieme il limite.
+    """
     max_calls, window = _get_rate_config()
-    now = time.time()
-    while _CALL_TIMESTAMPS and _CALL_TIMESTAMPS[0] < now - window:
-        _CALL_TIMESTAMPS.popleft()
+    with _RATE_LOCK:
+        now = time.time()
+        while _CALL_TIMESTAMPS and _CALL_TIMESTAMPS[0] < now - window:
+            _CALL_TIMESTAMPS.popleft()
 
-    if len(_CALL_TIMESTAMPS) >= max_calls:
-        sleep_time = _CALL_TIMESTAMPS[0] + window - now
-        if sleep_time > 0:
-            console.print(f"[dim][rate-limit] Sforato limite {max_calls} chiamate/{window}s. Attendo {sleep_time:.1f}s...[/dim]")
-            time.sleep(sleep_time)
-        _CALL_TIMESTAMPS.popleft()
+        if len(_CALL_TIMESTAMPS) >= max_calls:
+            sleep_time = _CALL_TIMESTAMPS[0] + window - now
+            if sleep_time > 0:
+                console.print(f"[dim][rate-limit] Sforato limite {max_calls} chiamate/{window}s. Attendo {sleep_time:.1f}s...[/dim]")
+                time.sleep(sleep_time)
+            _CALL_TIMESTAMPS.popleft()
 
-    _CALL_TIMESTAMPS.append(time.time())
+        _CALL_TIMESTAMPS.append(time.time())
 
 
 def _rate_limited_call(**kwargs):
@@ -67,6 +94,7 @@ class ErroreAstral(RuntimeError):
             code = "SCONOSCIUTO"
         self.code = code
         self.cause = cause
+        self.uncertain = False   # [FIX#4] True = esito ignoto, nessun retry automatico
         super().__init__(f"[{code}] {message}" if message else f"[{code}]")
 
 
@@ -91,9 +119,40 @@ RETRYABLE_CODES = {"RATE_LIMIT", "TIMEOUT", "SERVER"}
 RETRY_MAX = 2            # tentativi extra oltre il primo
 RETRY_BASE_DELAY = 1.0   # secondi
 
+# [FIX#4] Un errore di rete puo' avvenire PRIMA dell'invio (DNS, connessione
+# rifiutata) oppure DOPO (read timeout). Nel secondo caso il provider potrebbe
+# aver gia' ricevuto ed eseguito la richiesta: un retry automatico duplica
+# effetti e costi. Questi pattern identificano il caso "certamente pre-invio".
+_PRE_SEND_PATTERNS = (
+    "connection refused", "connectionrefused", "name or service not known",
+    "nodename nor servname", "temporary failure in name resolution",
+    "getaddrinfo", "failed to resolve", "no address associated",
+    "network is unreachable", "connection reset by peer", "connect timeout",
+    "connecttimeout", "connecterror", "connection error",
+)
+
+
+def _is_uncertain_after_send(exc) -> bool:
+    """True se l'errore puo' essere avvenuto DOPO l'invio della richiesta.
+
+    In tal caso l'esito e' ignoto e la richiesta non va ritentata
+    automaticamente (rischio di doppio addebito / doppio effetto).
+    """
+    s = str(exc).lower()
+    if any(p in s for p in _PRE_SEND_PATTERNS):
+        return False
+    return ("timeout" in s or "timed out" in s or "read" in s
+            or "stream" in s or "connection" in s)
+
 
 def _with_retry(fn, op="llm_call", log=None):
-    """Esegue fn() con retry esponenziale sui codici retryable; al termine rilancia ErroreAstral tipizzato."""
+    """Esegue fn() con retry esponenziale sui codici retryable; al termine rilancia ErroreAstral tipizzato.
+
+    [FIX#4] Il retry automatico e' concesso solo se l'errore e' certamente
+    avvenuto PRIMA dell'invio, oppure se il codice e' RATE_LIMIT (429: richiesta
+    rifiutata, non eseguita) o SERVER (5xx: risposta ricevuta, esito noto).
+    I timeout post-invio vengono marcati `uncertain` e NON ritentati.
+    """
     last_exc = None
     for attempt in range(RETRY_MAX + 1):
         try:
@@ -101,7 +160,12 @@ def _with_retry(fn, op="llm_call", log=None):
         except Exception as e:
             code = _classifica_errore(e)
             last_exc = ErroreAstral(code, str(e), cause=e)
-            if code not in RETRYABLE_CODES or attempt >= RETRY_MAX:
+            uncertain = code == "TIMEOUT" and _is_uncertain_after_send(e)
+            if uncertain:
+                last_exc.uncertain = True
+            if uncertain and log:
+                log(f"[dim][retry] {op}: TIMEOUT post-invio, esito incerto -> nessun retry automatico[/dim]")
+            if uncertain or code not in RETRYABLE_CODES or attempt >= RETRY_MAX:
                 raise last_exc from e
             delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.3)
             if log:
@@ -130,14 +194,14 @@ telemetry_enabled = True
 
 # Modelli dedicati al routing dinamico intelligente (tutti verificati e operativi)
 MODEL_CONVERSATION = "deepseek/deepseek-v4-flash-0731"
-MODEL_CODE = "z-ai/glm-5.3-flash"
+MODEL_CODE = "deepseek/deepseek-v4.1-flash"
 
 MODELS = {
     "deepseek": "deepseek/deepseek-v4-flash-0731",
     "1": "deepseek/deepseek-v4-flash-0731",
     "deepseek-flash": "deepseek/deepseek-v4-flash-0731",
-    "z-ai": "z-ai/glm-5.3-flash",
-    "glm": "z-ai/glm-5.3-flash",
+    "deepseek-v4.1": "deepseek/deepseek-v4.1-flash",
+    "v4.1": "deepseek/deepseek-v4.1-flash",
     "sol": "openai/gpt-5.6-sol",
     "5.6": "openai/gpt-5.6-sol",
     "gpt-5.6": "openai/gpt-5.6-sol",
@@ -148,11 +212,11 @@ MODELS = {
 }
 
 # Full IDs verificati su OpenRouter (ammessi oltre ai valori di MODELS)
-EXTRA_VALID_MODELS = {"deepseek/deepseek-v4-flash-0731", "z-ai/glm-5.3-flash", "openai/gpt-5.6-sol", "openai/gpt-5.6-luna"}
+EXTRA_VALID_MODELS = {"deepseek/deepseek-v4-flash-0731", "deepseek/deepseek-v4.1-flash", "openai/gpt-5.6-sol", "openai/gpt-5.6-luna"}
 
 DYNAMIC_MODELS_POOL = [
     "deepseek/deepseek-v4-flash-0731",
-    "z-ai/glm-5.3-flash",
+    "deepseek/deepseek-v4.1-flash",
     "openai/gpt-5.6-luna"
 ]
 
@@ -381,6 +445,8 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
     try:
         from selfmap import load_bootstrap_context
         system_content += "\n\n" + load_bootstrap_context()
+        from selfmap import knowledge_map_prompt_hint
+        system_content += "\n\n" + knowledge_map_prompt_hint()
     except Exception as _bootstrap_error:
         log_error("bootstrap_context", _bootstrap_error)
     try:
