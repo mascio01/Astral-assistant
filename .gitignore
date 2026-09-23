@@ -107,3 +107,7 @@ disco_dancer.py
 identity.md
 state.md
 progetti/
+
+# Fantacalcio/interim (solo locale, non versionati)
+asta_fantacalcio.py
+_tmp_scripts/
