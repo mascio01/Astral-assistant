@@ -7,6 +7,7 @@ import json
 import os
 import random
 import re
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -32,12 +33,89 @@ PROFILI_GIUDICI = {
     ],
     "lite": [
         ("deepseek/deepseek-v4-flash-0731", 0.3),
-        ("z-ai/glm-5.3-flash", 0.4),
+        ("deepseek/deepseek-v4.1-flash", 0.4),
         ("openai/gpt-5.6-luna", 0.5),
     ],
 }
 GIUDICI = PROFILI_GIUDICI["standard"]  # attivo, riassegnato da run_verdict(profilo=...)
 MAX_TEMP = 0.5  # hard cap: nessun giudice puo' superarlo
+
+# Budget adattivo: conserva la latenza EMA delle chiamate reali, separata per
+# modello. Il processo madre usa lo stesso file per il timeout della sessione.
+VERDICT_LATENCY_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".verdict_latency.json")
+_LATENCY_LOCK = threading.Lock()
+_DEFAULT_LATENCY = {"standard": 32.0, "lite": 48.0}
+
+
+def _complexity_factor(text: str) -> float:
+    """Stima conservativa della complessita' dal testo effettivamente inviato."""
+    raw = text or ""
+    factor = 1.0 + min(1.5, len(raw) / 12000.0)
+    if len(raw.split()) > 1800:
+        factor += 0.25
+    if re.search(r"\b(codice|code|debug|errore|architettura|analizza|confronta|implementa)\b", raw, re.I):
+        factor += 0.2
+    return min(3.0, factor)
+
+
+def _latency_baseline(profilo: str) -> float:
+    """Media EMA recente dei giudici del profilo, con fallback prudente."""
+    default = _DEFAULT_LATENCY.get(profilo, _DEFAULT_LATENCY["standard"])
+    modelli = {m for m, _ in PROFILI_GIUDICI.get(profilo, PROFILI_GIUDICI["standard"])}
+    try:
+        with open(VERDICT_LATENCY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        valori = [float(v.get("ema", 0)) for m, v in data.get("models", {}).items()
+                  if m in modelli and float(v.get("ema", 0)) > 0]
+        if valori:
+            return max(8.0, sum(valori) / len(valori))
+    except Exception:
+        pass
+    return default
+
+
+def _adaptive_call_timeout(profilo: str, payload: str) -> float:
+    """Timeout di una singola chiamata, proporzionato a profilo e complessita'."""
+    factor = _complexity_factor(payload)
+    # Un margine sopra l'EMA evita di trasformare una risposta lenta isolata in
+    # un falso errore; il tetto impedisce attese indefinite del provider.
+    return min(180.0, max(25.0, _latency_baseline(profilo) * factor * 2.2 + 8.0))
+
+
+def estimate_verdict_timeout(profilo: str, payload: str = "") -> int:
+    """Budget dell'intera sessione: giudici + sintesi + eventuale rivalutazione."""
+    profilo = profilo if profilo in PROFILI_GIUDICI else "standard"
+    call = _adaptive_call_timeout(profilo, payload)
+    # Standard: broadcast, sintesi, rivalutazione dei dissensi e sintesi finale.
+    # Lite: broadcast e sintesi; non esegue la rivalutazione ponderata.
+    fasi = 4 if profilo == "standard" else 2
+    overhead = 45 if profilo == "standard" else 35
+    return int(min(900, max(180 if profilo == "standard" else 300,
+                             round(call * fasi + overhead))))
+
+
+def _record_latency(modello: str, elapsed: float, ok: bool):
+    """Aggiorna l'EMA senza mai compromettere il verdetto in corso."""
+    if elapsed <= 0:
+        return
+    try:
+        with _LATENCY_LOCK:
+            try:
+                with open(VERDICT_LATENCY_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {"models": {}}
+            models = data.setdefault("models", {})
+            old = models.get(modello, {})
+            previous = float(old.get("ema", elapsed))
+            ema = elapsed if not old else (previous * 0.7 + elapsed * 0.3)
+            models[modello] = {"ema": round(ema, 2), "last": round(elapsed, 2), "ok": bool(ok)}
+            tmp = VERDICT_LATENCY_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, VERDICT_LATENCY_FILE)
+    except Exception:
+        pass
 
 # Ponderazione dei giudici (stessa scala del benchmark di routing, valori fittizi
 # iniziali 0-10 per dimensione). La maggioranza pesata SOSTITUISCE la maggioranza
@@ -50,7 +128,7 @@ PESI_GIUDICI_DEFAULT = {
     "z-ai/glm-5.3": {"analisi": 8.0, "affidabilita": 8.5},
     "openai/gpt-5.6-luna-pro": {"analisi": 9.0, "affidabilita": 9.0},
     "deepseek/deepseek-v4-flash-0731": {"analisi": 7.0, "affidabilita": 7.5},
-    "z-ai/glm-5.3-flash": {"analisi": 7.5, "affidabilita": 7.5},
+    "deepseek/deepseek-v4.1-flash": {"analisi": 8.0, "affidabilita": 7.5},
     "openai/gpt-5.6-luna": {"analisi": 8.0, "affidabilita": 8.5},
 }
 BENCHMARK_FILE = os.path.join("verdict", ".verdict_benchmark_cache.json")
@@ -261,11 +339,13 @@ def _maggioranza_pesata(pareri, pesi: dict):
     return (vincitori[0] if len(vincitori) == 1 else None), dettaglio
 
 
-def _chiama_giudice(client, modello, temp, quesito, dossier=""):
+def _chiama_giudice(client, modello, temp, quesito, dossier="", profilo="standard"):
     """Chiamata sincrona per un giudice (eseguita in thread separato)."""
     start = time.time()
+    payload = quesito + dossier
     try:
-        resp = client.with_options(timeout=25.0, max_retries=0).chat.completions.create(
+        timeout = _adaptive_call_timeout(profilo, payload)
+        resp = client.with_options(timeout=timeout, max_retries=0).chat.completions.create(
             model=modello,
             temperature=temp,
             messages=[
@@ -278,19 +358,21 @@ def _chiama_giudice(client, modello, temp, quesito, dossier=""):
         )
         testo = (resp.choices[0].message.content or "").strip()
         print_telemetry(resp, model_name=modello)
+        _record_latency(modello, time.time() - start, bool(testo))
         return testo
     except Exception as e:
+        _record_latency(modello, time.time() - start, False)
         log_error(f"verdict/giudice[{modello}]", e)
         return ""
 
 
-async def _broadcast(client, assegnazioni, quesito, dossier):
+async def _broadcast(client, assegnazioni, quesito, dossier, profilo="standard"):
     """Esegue tutti i giudici in parallelo (thread pool) e ritorna i Pareri."""
     loop = asyncio.get_running_loop()
     tasks = [
         loop.run_in_executor(
             None,
-            lambda m=modello, t=temp: _chiama_giudice(client, m, t, quesito, dossier),
+            lambda m=modello, t=temp: _chiama_giudice(client, m, t, quesito, dossier, profilo),
         )
         for _, modello, temp in assegnazioni
     ]
@@ -306,7 +388,7 @@ async def _broadcast(client, assegnazioni, quesito, dossier):
     return pareri
 
 
-async def _rivaluta_dissenso(client, pareri, sintesi):
+async def _rivaluta_dissenso(client, pareri, sintesi, profilo="standard"):
     """Fase ponderata: i giudici MINORANZA (peso < max) rivedono/ confermano la
     posizione prevalente; poi il primo disponibile del pool rivaluta la sintesi
     integrando gli eventuali dissensi rimasti. Failsafe: errore -> sintesi invariata."""
@@ -326,7 +408,7 @@ async def _rivaluta_dissenso(client, pareri, sintesi):
                                                  precedente=p.risposta, sintesi=sintesi)
             tasks.append(loop.run_in_executor(
                 None, lambda mm=p.modello, tt=min(p.temp, MAX_TEMP), pp=prompt:
-                _chiama_giudice(client, mm, tt, pp)))
+                _chiama_giudice(client, mm, tt, pp, profilo=profilo)))
         revisioni = [r for r in (await asyncio.gather(*tasks)) if r] if tasks else []
         if not revisioni:
             return sintesi, dettaglio
@@ -339,7 +421,9 @@ async def _rivaluta_dissenso(client, pareri, sintesi):
               "gli eventuali dissensi fondati rimasti. Zero riferimenti a modelli/vendor.")
         for modello, _t in GIUDICI:
             try:
-                resp = client.with_options(timeout=25.0, max_retries=0).chat.completions.create(
+                resp = client.with_options(
+                    timeout=_adaptive_call_timeout(profilo, prompt_finale), max_retries=0
+                ).chat.completions.create(
                     model=modello, temperature=MAX_TEMP,
                     messages=[{"role": "user", "content": prompt_finale}])
                 testo = (resp.choices[0].message.content or "").strip()
@@ -354,7 +438,7 @@ async def _rivaluta_dissenso(client, pareri, sintesi):
         return sintesi, None
 
 
-def _sintetizza(client, pareri, quesito, contesto=""):
+def _sintetizza(client, pareri, quesito, contesto="", profilo="standard"):
     """Un modello (il primo del pool) sintetizza i pareri anonimizzati."""
     blocco = "\n\n".join(
         f"[{p.codice}]\n{p.risposta if p.ok else '(non disponibile: ' + p.errore + ')'}"
@@ -366,7 +450,9 @@ def _sintetizza(client, pareri, quesito, contesto=""):
     modelli = [m for m, _ in GIUDICI]
     for modello in modelli:
         try:
-            resp = client.with_options(timeout=25.0, max_retries=0).chat.completions.create(
+            resp = client.with_options(
+                timeout=_adaptive_call_timeout(profilo, prompt), max_retries=0
+            ).chat.completions.create(
                 model=modello,
                 temperature=MAX_TEMP,
                 messages=[
@@ -411,17 +497,17 @@ def _stampa_verdetto(v: "VerdettoFinale"):
 
 async def run_verdict_async(client, quesito: str, dossier: str, profilo: str = "standard") -> "VerdettoFinale":
     assegnazioni = _giudici_assegnati()
-    pareri = await _broadcast(client, assegnazioni, quesito, dossier)
+    pareri = await _broadcast(client, assegnazioni, quesito, dossier, profilo)
     # Il dossier e' gia' stato costruito dal chiamante: nel profilo lite
     # evitiamo una seconda scansione del progetto e limitiamo il contesto della sintesi.
     contesto_sintesi = dossier[:CONTEXT_SYNTHESIS_MAX_CHARS]
-    sintesi, modello_sint = _sintetizza(client, pareri, quesito, contesto_sintesi)
+    sintesi, modello_sint = _sintetizza(client, pareri, quesito, contesto_sintesi, profilo)
     # Lite = pareri paralleli + una sintesi. La rivalutazione della minoranza
     # aggiunge altre chiamate API senza migliorare proporzionalmente il risultato.
     if profilo == "lite":
         ponderazione = None
     else:
-        sintesi, ponderazione = await _rivaluta_dissenso(client, pareri, sintesi)
+        sintesi, ponderazione = await _rivaluta_dissenso(client, pareri, sintesi, profilo)
     return VerdettoFinale(
         quesito=quesito,
         pareri=pareri,

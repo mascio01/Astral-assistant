@@ -1,0 +1,5 @@
+#!/bin/sh
+# post-merge hook (policy Astral): SOLO notifica/log, nessuna scrittura su DB.
+# La riconciliazione vera avviene con sync_from_git() all'avvio di Astral.
+python "$(git rev-parse --show-toplevel)/task_hook.py" post-merge "$1" || true
+exit 0
