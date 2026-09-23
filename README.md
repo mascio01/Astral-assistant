@@ -169,27 +169,37 @@ These are generated at runtime and should **not** be committed or edited by hand
 ### Prerequisites
 
 - **Windows 10/11** (Astral uses Windows-specific APIs and PowerShell).
-- **Python 3.11+** (developed and tested on Python 3.13).
+- **Git** — <https://git-scm.com/download/win>
+- **Python 3.11+** (developed and tested on Python 3.13) — <https://www.python.org/downloads/>. During installation, tick **"Add python.exe to PATH"**.
 - An **OpenRouter API key** — get one at <https://openrouter.ai/keys>.
-- *(Optional, for voice input)* a working microphone; whisper.cpp binaries are already included in `whisper_bin/`.
+- *(Optional, for voice input)* a working microphone. Note: whisper.cpp model binaries are **not** committed (too large for GitHub) — see [Voice input](#optional-voice-input) below.
 
-### Step-by-step setup
+### Fresh machine setup (step by step)
 
-1. **Clone the repository**
+1. **Install Python and Git** if not already present (see prerequisites above). Verify from a new terminal:
+
+   ```powershell
+   python --version
+   git --version
+   ```
+
+2. **Clone the repository**
 
    ```powershell
    git clone https://github.com/mascio01/Astral-assistant.git
    cd Astral-assistant
    ```
 
-2. **(Recommended) Create a virtual environment**
+3. **(Recommended) Create and activate a virtual environment**
 
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\Activate.ps1
    ```
 
-3. **Install dependencies**
+   > Your prompt should now show `(.venv)`.
+
+4. **Install dependencies**
 
    ```powershell
    pip install -r requirements.txt
@@ -197,7 +207,7 @@ These are generated at runtime and should **not** be committed or edited by hand
 
    The only hard dependency is `prompt_toolkit` (rich terminal input). Everything else uses the Python standard library.
 
-4. **Configure your API key**
+5. **Configure your API key**
 
    ```powershell
    Copy-Item .env.example .env
@@ -210,7 +220,9 @@ These are generated at runtime and should **not** be committed or edited by hand
    OPENROUTER_API_KEY=your_real_key_here
    ```
 
-5. **Run Astral**
+   Save and close. The `.env` file is git-ignored and never committed.
+
+6. **Run Astral**
 
    ```powershell
    python astral.py
@@ -221,7 +233,24 @@ These are generated at runtime and should **not** be committed or edited by hand
    - build the bootstrap context (identity + state),
    - open the interactive console session.
 
-6. **Talk to it.** Type requests in natural language; Astral will route them to the best model, use tools when needed (PowerShell, file operations, scraping), and keep memory across sessions.
+7. **Talk to it.** Type requests in natural language; Astral will route them to the best model, use tools when needed (PowerShell, file operations, scraping), and keep memory across sessions.
+
+### Verify the installation
+
+```powershell
+python test_trim_fixtures.py   # trimming unit tests
+python test_routing_engine.py  # routing engine tests
+python test_price_map.py       # pricing table tests
+python bench_perf.py           # quick performance check
+```
+
+### Optional: voice input
+
+Astral uses local speech-to-text via whisper.cpp (no cloud APIs). The model binaries are too large for GitHub and are **not** committed. To enable voice:
+
+1. Download a whisper model (e.g. `ggml-base.bin`) from <https://huggingface.co/ggerganov/whisper.cpp/tree/main>.
+2. Place it in `whisper_bin\Release\` (create the folder if missing).
+3. Restart Astral.
 
 ### Optional: build a standalone executable
 
@@ -232,12 +261,22 @@ pyinstaller Astral.spec
 
 The executable will be created in the `dist/` folder.
 
-### Optional: verify the installation
+### Optional: enable the git hooks
+
+The repository ships with hooks in `.githooks/` (commit-msg, post-merge). To use them:
 
 ```powershell
-python test_trim_fixtures.py   # runs the trimming unit tests
-python bench_perf.py           # quick performance check
+git config core.hooksPath .githooks
 ```
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `python` is not recognized | Reinstall Python and tick **"Add python.exe to PATH"**, or use `py` instead of `python`. |
+| `pip` fails installing `prompt_toolkit` | Upgrade pip first: `python -m pip install --upgrade pip`, then retry step 4. |
+| Blank screen / no output on start | Make sure `.env` exists and `OPENROUTER_API_KEY` is set; check that outbound HTTPS to `openrouter.ai` is allowed. |
+| Voice input does nothing | The whisper model binary is missing — see [Voice input](#optional-voice-input). |
 
 ---
 
