@@ -1,0 +1,12 @@
+#!/bin/sh
+# commit-msg hook (policy Astral): rifiuta commit senza ID task.
+# Convenzione: <tipo>(#<id>): descrizione  es. feat(#42): aggiunge tracker
+# Bypass consentito con --no-verify, ma loggato in .git/task_bypass.log
+MSG_FILE="$1"
+if python "$(git rev-parse --show-toplevel)/task_hook.py" commit-msg "$MSG_FILE"; then
+    exit 0
+else
+    echo "COMMIT RIFIUTATO: il messaggio deve contenere un ID task, es. feat(#42): ..." >&2
+    echo "Per bypassare (sconsigliato): git commit --no-verify" >&2
+    exit 1
+fi

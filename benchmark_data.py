@@ -293,14 +293,16 @@ def _cost_score(usd_per_token: float) -> float:
 # ---------------------------------------------------------------- Intreccio --
 def normalize_name(name: str) -> str:
     """Normalizza un nome modello per l'intreccio LB<->OR: toglie vendor,
-    varianti, date, suffissi di reasoning-effort e unifica '.'/'-'."""
+    varianti, date, suffissi di reasoning-effort e unifica '.'/'-'.
+    NB: LiveBench scrive '-max' quando usa il modello al massimo della
+    potenza di calcolo: NON e' una variante di modello, va rimosso."""
     s = (name or "").lower().strip()
     s = re.sub(r":.*$", "", s)                       # varianti :free/:batch/...
     s = re.sub(r"^[~a-z0-9_-]+/", "", s)             # prefisso vendor (x-ai/, anthropic/, ...)
     s = re.sub(r"-20\d{2}-\d{2}-\d{2}", "", s)        # date ovunque (-2025-12-11-...)
     s = re.sub(r"-20\d{6,}", "", s)                   # date compatte ovunque (-20251101...)
     for _ in range(3):                               # suffissi effort/limiter (ripetuti)
-        s = re.sub(r"-(thinking|auto|high|medium|low|xhigh|effort|64k|128k|256k|latest)$", "", s)
+        s = re.sub(r"-(thinking|auto|high|medium|low|xhigh|effort|max|64k|128k|256k|latest)$", "", s)
     s = s.replace(".", "-")                           # claude-opus-4.5 == claude-opus-4-5
     s = re.sub(r"-+", "-", s).strip("-")
     return s
@@ -399,7 +401,7 @@ def _build_models() -> dict:
 # oltre questi 3 modelli: qualunque selezione per gruppo cade solo qui dentro.
 POOL_CANONICO = [
     "deepseek/deepseek-v4-flash-0731",
-    "z-ai/glm-5.3-flash",
+    "deepseek/deepseek-v4.1-flash",
     "openai/gpt-5.6-luna",
 ]
 
