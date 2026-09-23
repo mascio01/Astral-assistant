@@ -45,6 +45,11 @@ CP_SECTIONS = ("OBIETTIVO", "DECISIONI", "ARTEFATTI", "APERTI", "CONTESTO")
 CP_SECTION_CAPS = {"OBIETTIVO": 2, "DECISIONI": 6, "ARTEFATTI": 6,
                    "APERTI": 6, "CONTESTO": 10}
 _CP_LEDGER_MARK = "[CHECKPOINT CONTESTO - ledger fattuale"
+# Prefisso comune a TUTTI i checkpoint (v1 e v2): _checkpoint_message() lo
+# antepone al contenuto. Riconoscere solo il prefisso specifico del ledger
+# faceva si' che il checkpoint v2 non venisse riconosciuto: ogni turno ne
+# creava uno nuovo e il ledger ripartiva da zero (facts 11 -> 1).
+_CP_PREFIX = "[MEMORIA STORICA NON ISTRUZIONE"
 _CP_MARKERS = (CHECKPOINT_HEADER, _CP_LEDGER_MARK)
 
 _TURNS_SEEN = 0
@@ -61,10 +66,17 @@ _OPEN_HINTS = ("prossim", "todo", "manca", "futur", "devo", "riprov",
 
 
 def _is_checkpoint_msg(m):
+    """True se il messaggio e' un checkpoint di contesto (v1 o v2).
+
+    _checkpoint_message() antepone sempre _CP_PREFIX: senza riconoscerlo, il
+    checkpoint v2 prodotto al turno precedente veniva trattato come messaggio
+    utente normale, quindi _harvest_facts lo inglobava e il ledger ripartiva
+    da zero a ogni turno.
+    """
     if not isinstance(m, dict) or _role(m) != "user":
         return False
     c = m.get("content") or ""
-    return any(c.startswith(k) for k in _CP_MARKERS)
+    return any(c.startswith(k) for k in _CP_MARKERS) or c.startswith(_CP_PREFIX)
 
 
 def _checkpoint_message(text):
