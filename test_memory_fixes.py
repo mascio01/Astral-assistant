@@ -91,6 +91,7 @@ def test_g17_fallimento_azzera_flag():
         db = os.path.join(d, "tasks.db")
         with Patcher() as p:
             p.set(TT, "TASKS_DB", db)
+            p.set(TT, "_git", lambda *a, **k: (True, ""))
             TT.init_tasks()
             TT.create_task(1, "titolo")
             p.set(TT, "_run_tests", lambda: (True, ["ok"]))
@@ -110,7 +111,6 @@ def _test_passed(db, task_id):
         return c.execute("SELECT test_passed FROM tasks WHERE id=?", (task_id,)).fetchone()[0]
     finally:
         c.close()
-
 
 # ------------------------------------------------------------------ G20 ---
 def test_g20_manutenzione_esplicita():
