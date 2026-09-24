@@ -1041,8 +1041,14 @@ def main():
                     cfg_data["current_model"] = get_current_model()
                     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                         json.dump(cfg_data, f, indent=4)
-                except Exception:
-                    pass
+                except Exception as _cfg_e:
+                    # [FIX G09] Errore NON silenzioso: se il salvataggio fallisce
+                    # l'utente crederebbe il modello persistito quando non lo e'.
+                    console.print(ui_error(f"[!] Impossibile salvare la config: {_cfg_e}"))
+                    try:
+                        log_error("save_config_model", _cfg_e)
+                    except Exception:
+                        pass
                 console.print(f"[dim][*] Modello impostato a [bold dark_orange]{get_current_model()}[/][/dim]")
                 continue
 
