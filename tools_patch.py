@@ -33,11 +33,28 @@ def apply_code_patch(path, patches):
         if any(r["status"] == "error" for r in results):
             # Atomicita': se anche un solo blocco fallisce, non scrivere nulla
             return {"status": "failed", "results": results, "written": False}
-        with io.open(path, "w", encoding="utf-8") as f:
-            f.write(src)
+        # [FIX G05] Scrittura ATOMICA: prima si scriveva direttamente sul file
+        # di destinazione, quindi un errore a meta' write lasciava il file
+        # corrotto. Ora si scrive su un temporaneo nella stessa cartella e si
+        # sostituisce con os.replace (atomico sullo stesso filesystem).
+        import tempfile
+        d = os.path.dirname(os.path.abspath(path)) or "."
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+        try:
+            with io.open(fd, "w", encoding="utf-8", closefd=True) as f:
+                f.write(src)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+            raise
         return {"status": "success", "results": results, "written": True, "blocks": len(patches)}
     except Exception as e:
         return {"error": str(e)}
+
+
 def test_python_file(path, mode="compile", timeout=30):
     """Auto-testing silenzioso: py_compile (default) o dry-run con timeout.
     Ritorna SOLO stato + traceback troncato (max 1000 caratteri). Nessun echo PowerShell."""
