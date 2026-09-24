@@ -28,7 +28,7 @@ _LOCK = threading.RLock()
 _BRANCH_RE = re.compile(r"^task/(\d+)(?:-|$)")
 # NB: senza '^' per poter usare .search() sulle righe di 'git log --oneline'
 # (che iniziano con l'hash). La validazione del messaggio usa .match().
-_COMMIT_MSG_RE = re.compile(r"(?:feat|fix|chore|docs|refactor|test|build|ci)\(#(\d+)\)", re.IGNORECASE)
+_COMMIT_MSG_RE = re.compile(r"(?:feat|fix|perf|chore|docs|refactor|test|build|ci)\(#(\d+)\)", re.IGNORECASE)
 
 _DDL = """CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY,
