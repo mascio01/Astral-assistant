@@ -174,7 +174,17 @@ def _fetch_release(rel: str) -> bool:
     with _lock:
         _state["lb_release"] = d
         _write_state()
+    _invalidate_knowledge_map()
     return True
+
+def _invalidate_knowledge_map():
+    """KM03: dopo una sync riuscita lo snapshot della knowledge map e' obsoleto.
+    Best-effort: un errore dell'indice non deve far fallire la sincronizzazione."""
+    try:
+        import knowledge_map
+        knowledge_map.invalidate()
+    except Exception as e:
+        log_error("benchmark_data/knowledge_map_invalidate", e)
 
 
 def _load_lb():
