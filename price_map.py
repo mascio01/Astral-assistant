@@ -1,9 +1,18 @@
 ﻿"""
 P3 - price_map.py: tariffe LLM (USD per 1M token) per il report /usage.
-- Match per sottostringa case-insensitive (vince la chiave piu' lunga/specifica).
-- Override utente: file prices_override.json nella root Astral
-  {"modello-parziale": [prompt_usd_mtok, completion_usd_mtok]}
-Prezzi indicativi di listino: EDITARE qui o via override JSON senza toccare altro codice.
+
+Precedenza effettiva di get_price (match per ID ESATTO, case-insensitive):
+  1) prices_override.json  -> sovrascrive le voci della tabella statica
+  2) price_map.PRICES      -> tabella statica di listino
+  3) .or_models_cache.json -> catalogo OpenRouter (prezzi reali $/token)
+NON si usa il match per sottostringa: un ID parziale non risolve (un catalogo
+per sottostringa farebbe collassare 'deepseek/...-flash' su 'deepseek').
+Il prefisso '~' e il suffisso ':batch' restano significativi: identificano
+prezzi diversi e non vanno rimossi.
+
+Override utente: prices_override.json nella root Astral
+  {"model-id": [prompt_usd_mtok, completion_usd_mtok]}
+Prezzi indicativi di listino: EDITARE PRICES o usare l'override JSON.
 """
 
 import json
@@ -14,7 +23,7 @@ _CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".or_mode
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _OVERRIDE_FILE = os.path.join(_DIR, "prices_override.json")
 
-# family/model-parziale: (prompt USD/1M, completion USD/1M)
+# model-id: (prompt USD/1M, completion USD/1M)
 # NB: get_price fa match per ID ESATTO (il catalogo non fa piu' sottostringa),
 # quindi le voci utili sono gli ID pieni; gli alias brevi servono a /model.
 PRICES = {
