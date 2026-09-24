@@ -1,3 +1,16 @@
-﻿
+﻿# Astral Assistant - dipendenze
+# Base: necessarie per avvio, console, LLM e memoria.
 prompt_toolkit
+rich
+python-dotenv
+openai
 
+# Scraping web (tools_scrape.py). httpx e' usato dal backend di default;
+# trafilatura e curl_cffi abilitano estrazione e fingerprint TLS avanzati.
+httpx
+trafilatura
+curl_cffi
+
+# Audio opzionale (voce locale, stt_integration.py).
+numpy
+sounddevice

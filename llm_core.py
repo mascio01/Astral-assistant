@@ -10,7 +10,6 @@ import sqlite3
 import threading
 import subprocess
 from datetime import datetime
-from openai import OpenAI
 
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -81,7 +80,7 @@ def _check_rate_limit():
 def _rate_limited_call(**kwargs):
     """W.per il client.chat.completions.create con rate limiter."""
     _check_rate_limit()
-    return client.chat.completions.create(**kwargs)
+    return _get_client().chat.completions.create(**kwargs)
 
 
 # --- n8n Pattern 1: errori tipizzati ---------------------------------------
@@ -188,8 +187,8 @@ def load_api_key():
 
 API_KEY = load_api_key()
 if not API_KEY:
-    console.print("[bold orange_red1][!] Variabile OPENROUTER_API_KEY non configurata.[/]")
-    raise SystemExit(1)
+    console.print("[yellow][!] OPENROUTER_API_KEY non configurata: le chiamate LLM remote saranno disabilitate.[/]")
+    console.print("[yellow]    I moduli indipendenti (tools, memoria, selfmap) restano utilizzabili.[/]")
 telemetry_enabled = True
 
 # Modelli dedicati al routing dinamico intelligente (tutti verificati e operativi)
@@ -225,12 +224,36 @@ DYNAMIC_MODELS_POOL = [
 current_model = "auto"
 # Timeout esplicito: evita che un endpoint OpenRouter blocchi il runner del verdetto
 # per i default molto lunghi dell'SDK. I retry sono gestiti dai layer superiori.
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=API_KEY,
-    timeout=25.0,
-    max_retries=0,
-)
+_client_instance = None
+
+
+def _get_client():
+    """Crea il client OpenRouter lazy (una sola volta).
+
+    [G01] L'import di llm_core non richiede piu' la libreria 'openai'
+    ne' una chiave configurata: il client viene creato solo alla prima
+    chiamata remota. Senza chiave o senza dipendenza si solleva un
+    ErroreAstral chiaro, senza bloccare i moduli indipendenti.
+    """
+    global _client_instance
+    if _client_instance is None:
+        if not API_KEY:
+            raise ErroreAstral(
+                "OPENROUTER_API_KEY non configurata: impossibile chiamare il modello."
+            )
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise ErroreAstral(
+                "Libreria 'openai' non installata: esegui 'pip install -r requirements.txt'."
+            ) from exc
+        _client_instance = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=API_KEY,
+            timeout=25.0,
+            max_retries=0,
+        )
+    return _client_instance
 
 SYSTEM_INSTRUCTION = (
     "HOME: La cartella principale del progetto e' C:\\Users\\masci\\Astral; il file madre attualmente in esecuzione e' astral.py (percorso completo: C:\\Users\\masci\\Astral\\astral.py).\n"

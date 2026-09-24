@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 
 from core_io import console, log_error
-from llm_core import client as _shared_client
+from llm_core import _get_client as _shared_client_factory
 from subagents.jobspec import get_ruolo, check_depth
 from llm_core import route_model
 
@@ -85,7 +85,7 @@ def run_role(ruolo: str, contesto: str = "", depth: int = 0) -> dict:
     except Exception:
         modello = r.get("modello_fallback", "deepseek/deepseek-v4-flash-0731")
     try:
-        resp = _shared_client.chat.completions.create(
+        resp = _shared_client_factory().chat.completions.create(
             model=modello,
             temperature=r["temp"],
             max_tokens=900,
