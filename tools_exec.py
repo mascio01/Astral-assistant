@@ -2,7 +2,6 @@
 # tools_exec.py - Schema tools OpenAI + dispatcher di esecuzione
 import os
 import subprocess
-import tempfile
 
 from core_io import BASE_DIR, _scan_dir_fast, cap_output
 from memory_store import recall_get, recall_list, recall_save
@@ -246,13 +245,16 @@ def _execute_tool_impl(name, args):
                 rtk_exe = os.path.join(BASE_DIR, "rtk", "rtk.exe")
                 if os.path.exists(rtk_exe):
                     try:
-                        # rtk passa il comando a cmd.exe: per evitare problemi di quoting/pipe
-                        # scriviamo il comando PS in un file temporaneo ed eseguiamo con -File
-                        fd, tmp_ps1 = tempfile.mkstemp(suffix=".ps1")
-                        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-                            f.write(cmd)
-                        rtk_res = subprocess.run([rtk_exe, "summary", "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmp_ps1], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=35)
-                        os.unlink(tmp_ps1)
+                        # G11: il riassunto NON deve rieseguire il comando. La
+                        # versione precedente riscriveva il comando PS su file e
+                        # lo rilanciava con '-File', causando una SECONDA esecuzione
+                        # (con effetti collaterali duplicati). Passiamo invece al
+                        # riassuntore l'OUTPUT gia' catturato, via stdin.
+                        rtk_res = subprocess.run(
+                            [rtk_exe, "summary"],
+                            input=out, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=35,
+                        )
                         if rtk_res.returncode == 0 and rtk_res.stdout.strip():
                             # Ibrido: testa dell'output (dati reali) + riassunto RTK (contestuale)
                             orig_len = len(out)

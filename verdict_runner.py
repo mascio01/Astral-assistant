@@ -35,6 +35,7 @@ except FileExistsError:
 
 log = open(out_path, "w", encoding="utf-8")
 _old_stdout, _old_stderr = sys.stdout, sys.stderr
+failed = False
 try:
     sys.stdout = log
     sys.stderr = log
@@ -44,15 +45,24 @@ try:
     if risultato:
         print(risultato)
 except Exception:
+    # [FIX G18] Un crash NON deve essere presentato come successo: scriviamo il
+    # traceback su stderr e marchiamo l'esito come FALLITO, cosi' il launcher
+    # non trova VERDICT_DONE e riporta 'failed'
+    # (prima il finally appendeva VERDICT_DONE anche dopo un crash).
     sys.stdout = _old_stdout
-    with open(err_path, "w", encoding="utf-8") as ef:
-        ef.write(traceback.format_exc())
+    try:
+        with open(err_path, "w", encoding="utf-8") as ef:
+            ef.write(traceback.format_exc())
+    except Exception:
+        pass
+    failed = True
 finally:
     sys.stdout = _old_stdout
     sys.stderr = _old_stderr
     log.close()
-    with open(out_path, "a", encoding="utf-8") as f:
-        f.write("\nVERDICT_DONE\n")
+    if not failed:
+        with open(out_path, "a", encoding="utf-8") as f:
+            f.write("\nVERDICT_DONE\n")
     try:
         _lock.close()
         os.remove(_lock_path)

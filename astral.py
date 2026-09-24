@@ -356,11 +356,16 @@ def _stop_cua_driver_if_idle():
         return
     try:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.run(
+        # [FIX G19] Il returncode di taskkill va controllato: se fallisce (es.
+        # accesso negato) il driver resta vivo e NON va dichiarato chiuso.
+        res = subprocess.run(
             ["taskkill", "/IM", "cua-driver.exe", "/T", "/F"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=5, creationflags=flags,
         )
+        if res.returncode != 0 and _cua_driver_running():
+            _early_log("stop cua-driver", RuntimeError(
+                "taskkill fallito (codice %s): il driver risulta ancora attivo" % res.returncode))
     except Exception as e:
         _early_log("stop cua-driver", e)
 
