@@ -7,7 +7,7 @@ import time
 import threading
 from datetime import datetime
 
-from core_io import BASE_DIR
+from core_io import BASE_DIR, log_error
 from memory_meta import attach_event_from_exec
 
 _LOG_DIR = os.path.join(BASE_DIR, "logs")
@@ -53,6 +53,7 @@ def _redact_value(v):
 
 def log_execution(tool, args, error=None, duration_ms=None, extra=None):
     """Append di una entry JSONL. Non solleva mai eccezioni (fail-safe)."""
+    global _line_no  # [FIX G14] senza 'global' l'augment era un UnboundLocalError
     try:
         safe_args = args if isinstance(args, dict) else {"raw": str(args)}
         # [FIX A-04] redazione dei segreti prima di serializzare
@@ -82,10 +83,23 @@ def log_execution(tool, args, error=None, duration_ms=None, extra=None):
             ln = _line_no
         try:
             attach_event_from_exec(str(tool), entry, ln)
-        except Exception:
-            pass
+        except Exception as _att_e:
+            # [FIX G14] Un fallimento dell'aggiornamento meta NON deve sparisce
+            # re nel silenzio: la riga raw e' gia' scritta, quindi annotiamo
+            # l'accaduto e contiamo la riga come 'da riconciliare', cosi' la
+            # prossima audit_meta la reimporta (nessun aggiornamento perduto).
+            _pending_meta.append(ln)
+            try:
+                log_error("exec_logger.attach_meta", _att_e)
+            except Exception:
+                pass
     except Exception:
         pass
+
+
+# [FIX G14] Righe raw la cui meta non e' stata scritta: segnaposto per il
+# recupero (audit_meta) e per la diagnostica. Non blocca mai il logging.
+_pending_meta = []
 
 
 # --- Pattern 4: circuit breaker persistente per il pool modelli -------------

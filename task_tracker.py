@@ -266,6 +266,24 @@ def mark_test_passed(task_id, run_tests=True):
     if run_tests:
         ok, detail = _run_tests()
     if not ok:
+        # [FIX G17] Un fallimento NON deve lasciare in vita il 'verde' di un
+        # giro precedente: il flag va AZZERATO, altrimenti mark_integrated
+        # considererebbe valido un test_passed=1 ormai stale.
+        try:
+            with _LOCK:
+                _c = _conn()
+                try:
+                    _c.execute("BEGIN IMMEDIATE")
+                    _c.execute(
+                        "UPDATE tasks SET test_passed=0, test_suite_hash=NULL, "
+                        "test_commit=NULL, ts_test_passed=? WHERE id=?",
+                        (_now_utc(), int(task_id)),
+                    )
+                    _c.commit()
+                finally:
+                    _c.close()
+        except Exception:
+            pass
         return {"ok": False, "error": "Test falliti", "detail": detail}
     suite_hash = _suite_hash()
     okc, commit = _git("rev-parse", "HEAD")

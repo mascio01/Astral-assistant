@@ -191,3 +191,53 @@ def init_db():
         conn.close()
     except Exception as e:
         log_error("init_db", e)
+
+
+def maintain_memory(recall_days=RECALL_RETENTION_DAYS,
+                    checkpoint_days=CHECKPOINT_RETENTION_DAYS):
+    """[FIX G20] Manutenzione ESPLICITA di recall.db e checkpoints.db.
+
+    La retention esisteva solo come effetto collaterale del salvataggio: senza
+    nuovi save i record scaduti restavano indefinitamente. Qui la applichiamo
+    su richiesta e compattiamo (VACUUM) per rendere la riduzione osservabile.
+    Best-effort: non solleva mai eccezioni.
+    """
+    out = {"recall": 0, "checkpoints": 0, "vacuum": []}
+    now = time.time()
+    try:
+        conn = sqlite3.connect(RECALL_DB, timeout=10)
+        try:
+            cur = conn.execute(
+                "DELETE FROM recall WHERE hash NOT IN "
+                "(SELECT hash FROM recall ORDER BY ts DESC LIMIT ?)",
+                (RECALL_MAX_ENTRIES,))
+            out["recall"] += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            cur = conn.execute("DELETE FROM recall WHERE ts < ?",
+                               (now - recall_days * 86400,))
+            out["recall"] += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            conn.commit()
+            conn.execute("VACUUM")
+            out["vacuum"].append("recall.db")
+        finally:
+            conn.close()
+    except Exception as e:
+        log_error("maintain_memory.recall", e)
+    try:
+        conn = sqlite3.connect(CHECKPOINT_DB, timeout=10)
+        try:
+            cur = conn.execute(
+                "DELETE FROM checkpoints WHERE id NOT IN "
+                "(SELECT id FROM checkpoints ORDER BY ts DESC LIMIT ?)",
+                (CHECKPOINT_MAX_ENTRIES,))
+            out["checkpoints"] += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            cur = conn.execute("DELETE FROM checkpoints WHERE ts < ?",
+                               (now - checkpoint_days * 86400,))
+            out["checkpoints"] += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            conn.commit()
+            conn.execute("VACUUM")
+            out["vacuum"].append("checkpoints.db")
+        finally:
+            conn.close()
+    except Exception as e:
+        log_error("maintain_memory.checkpoints", e)
+    return out

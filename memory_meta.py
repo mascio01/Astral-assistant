@@ -103,6 +103,13 @@ def init_meta():
             c.execute("CREATE INDEX IF NOT EXISTS idx_meta_type_ts ON memory_meta(event_type, ts_utc)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_meta_pinned ON memory_meta(pinned) WHERE pinned=1")
             c.execute("CREATE INDEX IF NOT EXISTS idx_tags_tag ON memory_tags(tag)")
+            # [FIX G16] Tombstone dei purgati: senza di esso audit_meta rilegge il
+            # log raw (append-only, mai toccato) e REIMPORTA le righe purgate,
+            # annullando la retention a ogni manutenzione.
+            c.execute("""CREATE TABLE IF NOT EXISTS memory_purged (
+                src_ref TEXT PRIMARY KEY,
+                purged_utc INTEGER
+            )""")
             c.commit()
         finally:
             c.close()
@@ -320,6 +327,9 @@ def prune(retention_days=_RETENTION_DAYS, max_entries=20000, hard_after_days=_SO
                     if spath:
                         out["snapshot"] = spath
                 for r in rows:
+                    # [FIX G16] Tombstone PRIMA della cancellazione fisica: segna
+                    # la riga come purgata in modo che audit_meta non la reimporti.
+                    c.execute("INSERT OR REPLACE INTO memory_purged (src_ref, purged_utc) VALUES (?,?)", (r[0], now))
                     c.execute("DELETE FROM memory_tags WHERE src_ref=? AND NOT EXISTS (SELECT 1 FROM memory_meta mm WHERE mm.src_ref=memory_tags.src_ref AND mm.pinned=1)", (r[0],))
                     c.execute("DELETE FROM memory_meta WHERE src_ref=? AND pinned=0", (r[0],))
                     out["purged"] += 1
@@ -399,6 +409,12 @@ def audit_meta(watermark=None):
             try:
                 out["meta_rows"] = c.execute("SELECT COUNT(*) FROM memory_meta").fetchone()[0]
                 meta_refs = {r[0] for r in c.execute("SELECT src_ref FROM memory_meta").fetchall()}
+                # [FIX G16] I purgati intenzionalmente NON vanno ri-reimportati.
+                try:
+                    purged_refs = {r[0] for r in c.execute(
+                        "SELECT src_ref FROM memory_purged").fetchall()}
+                except Exception:
+                    purged_refs = set()
             finally:
                 c.close()
         raw_refs = set()
@@ -407,8 +423,9 @@ def audit_meta(watermark=None):
                 for i, _line in enumerate(f, 1):
                     raw_refs.add("ln:%d" % i)
         out["raw_lines"] = len(raw_refs)
-        missing = raw_refs - meta_refs
+        missing = raw_refs - meta_refs - purged_refs
         out["missing_meta"] = len(missing)
+        out["skipped_purged"] = len((raw_refs - meta_refs) & purged_refs)
         if missing:
             for ref in sorted(missing, key=lambda r: int(r.split(":")[1])):
                 if _migrate_v1(ref):
