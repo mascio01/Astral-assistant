@@ -91,12 +91,14 @@ ROUTING_POOL = [
 
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico)
 DEFAULT_BENCHMARK = {
-    "deepseek/deepseek-v4-flash-0731": {"conversazione": 8.0, "codice": 7.0, "affidabilita": 8.5, "costo": 9.0},
-    "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 7.87, "affidabilita": 7.0, "costo": 8.5},
+    "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 8.0, "affidabilita": 7.0, "costo": 8.5},
+    "openai/gpt-6-luna": {"conversazione": 7.38, "codice": 7.9, "affidabilita": 5.59, "costo": 8.5},
+    "deepseek/deepseek-v4-flash-vision-exp": {"conversazione": 8.04, "codice": 6.82, "affidabilita": 7.1, "costo": 6.5},
+    "deepseek/deepseek-v4-flash-0731": {"conversazione": 7.92, "codice": 7.5, "affidabilita": 6.55, "costo": 9.0},
     "openai/gpt-5.6-sol": {"conversazione": 9.5, "codice": 9.0, "affidabilita": 9.5, "costo": 5.0},
     "deepseek/deepseek-v4-pro": {"conversazione": 8.5, "codice": 8.0, "affidabilita": 8.0, "costo": 6.5},
     "z-ai/glm-5.3": {"conversazione": 8.0, "codice": 8.5, "affidabilita": 8.5, "costo": 7.0},
-    "openai/gpt-5.6-luna": {"conversazione": 8.5, "codice": 8.0, "affidabilita": 8.5, "costo": 7.5},
+    "openai/gpt-5.6-luna": {"conversazione": 7.26, "codice": 8.29, "affidabilita": 6.01, "costo": 7.5},
 }
 
 _CODE_MARKERS = ["`", "def ", "class ", "import ", "function", "=>", "const ",

@@ -1,12 +1,22 @@
 ﻿# -*- coding: utf-8 -*-
 # selfmap.py - Auto-mappa del progetto (self-awareness persistente).
-import ast, datetime, fnmatch, hashlib, json, os, re, threading, time
+import ast, datetime, fnmatch, hashlib, json, os, re, threading, time, warnings
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, ".selfmap.md")
 JSON_OUT = os.path.join(ROOT, ".selfmap.json")
 _WATCH_STARTED = False
-EXCLUDE_DIRS = {"__pycache__", ".verdict", "venv", ".git", "node_modules"}
+EXCLUDE_DIRS = {"__pycache__", ".verdict", "venv", ".git", "node_modules",
+                "_tmp_scripts", "_scratch", ".pytest_cache", ".mypy_cache"}
 EXCLUDE_FILES = {"_explore_temp.py"}
+
+
+_SCRATCH_PREFIXES = ("_tmp", "_scratch", "_explore", "_draft", "_old")
+
+
+def _is_scratch(name):
+    """True solo per file scratch/temporanei noti, NON per i _*.py legittimi
+    (es. _test_support.py, __init__.py) che fanno parte del sorgente."""
+    return name.endswith(".py") and name.lower().startswith(_SCRATCH_PREFIXES)
 
 
 def is_stale(max_age=1800):
@@ -19,7 +29,7 @@ def is_stale(max_age=1800):
     for dirpath, dirnames, filenames in os.walk(ROOT):
         dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
         for fn in filenames:
-            if fn.endswith(".py"):
+            if fn.endswith(".py") and not _is_scratch(fn):
                 try:
                     if os.path.getmtime(os.path.join(dirpath, fn)) > map_mtime:
                         return True
@@ -76,7 +86,9 @@ def _analyze(path):
             "functions": [], "imports": [], "defines": [],
             "sha256": hashlib.sha256(src.encode("utf-8")).hexdigest()[:16]}
     try:
-        tree = ast.parse(src)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(src, filename=path)
     except SyntaxError as e:
         info["syntax_error"] = str(e)
         return info
@@ -112,6 +124,8 @@ def generate():
         dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
         for fn in sorted(filenames):
             if not fn.endswith(".py") or fn in EXCLUDE_FILES:
+                continue
+            if _is_scratch(fn):
                 continue
             path = os.path.join(dirpath, fn)
             files[os.path.relpath(path, ROOT)] = _analyze(path)

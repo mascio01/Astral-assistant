@@ -4,6 +4,8 @@
 # circuit breaker + kill switch. I tool esistenti (tools_exec, tools_scrape)
 # restano i backend; il gateway e' l'unico punto di ingresso per il modello.
 import json
+import os
+import re
 import threading
 import time
 
@@ -339,6 +341,7 @@ def _build_schemas():
                   timeout=300.0, read_only=True)
 
     _register_knowmap()
+    _register_verdict()
     _register("ask_user_question", "interaction",
               "Pone all'utente un questionario strutturato con opzioni, risposta libera e note.",
               {"type": "function", "function": {
@@ -377,6 +380,61 @@ def _register_knowmap():
               _h_knowmap, timeout=5.0, read_only=True)
 
 
+# --- Verdetto: servizio unico di avvio/attesa (verdict_launcher) ---
+def _register_verdict():
+    """Registra i tool del consiglio dei giudici. Il modello non deve mai
+    ricostruire a mano il protocollo: avvio, attesa e stato sono incapsulati."""
+    import verdict_launcher as _vl
+
+    _register("run_verdict", "verdict",
+              "Avvia il consiglio dei giudici in background (profilo 'standard' o 'lite') e ritorna subito. "
+              "Passa la domanda e, se utile, un contesto sintetico. Richiede piu' tempo: NON attendere qui, "
+              "prosegui e poi chiama verdict_wait per raccogliere l'esito.",
+              {"type": "function", "function": {
+                  "name": "run_verdict",
+                  "description": "Avvia il consiglio dei giudici in background e ritorna subito un job_id.",
+                  "parameters": {"type": "object", "properties": {
+                      "question": {"type": "string", "description": "Domanda da sottoporre al consiglio"},
+                      "profile": {"type": "string", "enum": ["standard", "lite"],
+                                  "description": "lite = modelli veloci/economici; standard = giudici pieni"},
+                      "context": {"type": "string", "description": "Contesto opzionale e sintetico (dati verificati, vincoli)"}
+                  }, "required": ["question"]}}},
+              lambda args: _vl.start_verdict(args.get("question", ""),
+                                             args.get("profile", "standard"),
+                                             args.get("context", "")),
+              timeout=30.0, read_only=False)
+
+    _register("verdict_wait", "verdict",
+              "Attende l'esito del verdetto gia' avviato con run_verdict. Ogni chiamata attende al massimo ~25s "
+              "(il lite puo' richiedere diversi minuti): se lo stato e' ancora 'running', richiama verdict_wait. "
+              "Non rilanciare run_verdict mentre un job e' attivo.",
+              {"type": "function", "function": {
+                  "name": "verdict_wait",
+                  "description": "Attende (max ~25s per chiamata) e ritorna l'esito o lo stato 'running'.",
+                  "parameters": {"type": "object", "properties": {
+                      "job_id": {"type": "string", "description": "Job_id opzionale per verifica di coerenza"},
+                      "max_wait": {"type": "number", "description": "Secondi di attesa in questa chiamata (max 60)"}
+                  }}}},
+              lambda args: _vl.wait_verdict(args.get("max_wait", 25.0), args.get("job_id")),
+              timeout=90.0, read_only=False)
+
+    _register("verdict_status", "verdict",
+              "Stato sintetico del verdetto in corso (idle/running/stalled/done) senza attendere.",
+              {"type": "function", "function": {
+                  "name": "verdict_status",
+                  "description": "Ritorna lo stato del verdetto in corso senza attendere.",
+                  "parameters": {"type": "object", "properties": {}}}},
+              lambda args: _vl.verdict_status(), timeout=15.0, read_only=True)
+
+    _register("verdict_cancel", "verdict",
+              "Annulla il verdetto in corso e ripulisce i file di protocollo.",
+              {"type": "function", "function": {
+                  "name": "verdict_cancel",
+                  "description": "Chiude il runner del verdetto attivo e ripulisce i temporanei.",
+                  "parameters": {"type": "object", "properties": {}}}},
+              lambda args: _vl.cancel_verdict(), timeout=30.0, read_only=False)
+
+
 # --- API pubblica ---
 def search_tools(query=""):
     """Cerca tool per nome/descrizione (solo metadati leggeri, niente schemi)."""
@@ -399,6 +457,68 @@ def describe_tool(name):
 def list_schemas():
     """Schema completo di TUTTI i tool (per la chiamata LLM iniziale)."""
     return [spec["schema"] for spec in _TOOL_SPECS.values()]
+
+
+# --- [C] Iniezione selettiva per intento (token-saving) ---
+# Tier 1: sempre inviati al modello (identita' operativa dell'assistente).
+_ALWAYS_ON = {
+    "scan_storage", "move_to_trash", "run_powershell_cmd", "recall",
+    "apply_code_patch", "test_python_file", "ask_user_question",
+}
+
+# Tier 2: namespace iniettati solo se l'intento o il contesto li richiamano.
+_NAMESPACE_TRIGGERS = {
+    "web": (r"\bhttp|\burl|sito|link|web|scrap|pagina|ricerc|documentaz|blog|wiki|"
+            r"font[ei]|repo|readme",),
+    "subagents": (r"struttur|codebase|progett|analiz|revision|review|\bdiff\b|"
+                  r"architettur|scout|indipendent|avversar",),
+    "knowledge": (r"tariff|prezz|cost[oi]|benchmark|modell|routing|knowmap|"
+                  r"knowledge|livebench|openrouter|qualita",),
+    "verdict": (r"verdetto|giudic|consiglio|dubbio|deliber|parere|controvers|"
+                r"decision|decid|valuta",),
+}
+
+
+def _context_namespaces(context=None):
+    """Namespace dei tool gia' usati nel contesto: mantiene attiva la fase tool,
+    cosi' un tool iniettato al turno N resta disponibile al follow-up N+1."""
+    namespaces = set()
+    for message in context or []:
+        if not isinstance(message, dict):
+            continue
+        for tool_call in message.get("tool_calls") or []:
+            function = tool_call.get("function") if isinstance(tool_call, dict) else None
+            name = (function or {}).get("name") if isinstance(function, dict) else None
+            spec = _TOOL_SPECS.get(name) if name else None
+            if spec:
+                namespaces.add(spec["namespace"])
+    return namespaces
+
+
+def select_schemas(user_input="", context=None, force_all=False):
+    """[C] Ritorna solo gli schemi pertinenti all'intento.
+
+    Tier 1 (core/interaction) sempre presenti; Tier 2 (web/subagents/knowledge/
+    verdict) iniettati se il testo o il contesto li richiamano. Riduce i token
+    per chiamata senza toccare l'allowlist di call_tool: un tool non iniettato
+    resta chiamabile, semplicemente non viene pubblicizzato.
+    """
+    if force_all or os.environ.get("ASTRAL_TOOLS_ALL") == "1":
+        return list_schemas()
+    text = (user_input or "").lower()
+    active = {"core", "interaction"} | _context_namespaces(context)
+    for namespace, patterns in _NAMESPACE_TRIGGERS.items():
+        if any(re.search(pattern, text) for pattern in patterns):
+            active.add(namespace)
+    return [spec["schema"] for spec in _TOOL_SPECS.values()
+            if spec["name"] in _ALWAYS_ON or spec["namespace"] in active]
+
+
+def schema_stats(schemas):
+    """Conteggio leggero per diagnostica/telemetria del filtro [C]."""
+    import json as _json
+    chars = len(_json.dumps(schemas, ensure_ascii=False))
+    return {"count": len(schemas), "chars": chars, "tokens": chars // 4}
 
 def call_tool(name, arguments=None):
     """Esegue un tool: allowlist + circuit breaker + timeout + kill switch."""

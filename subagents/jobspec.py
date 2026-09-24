@@ -19,7 +19,7 @@ RUOLI = {
         "descrizione": "Esplora il codebase (selfmap + file) e riporta fatti strutturali.",
         "tools": ["read_file", "selfmap", "search"],
         # Fallback solo se il router dinamico non e' disponibile.
-        "modello_fallback": "deepseek/deepseek-v4-flash-0731",
+        "modello_fallback": "deepseek/deepseek-v4-flash-vision-exp",
         "temp": 0.3,
     },
     "reviewer": {
