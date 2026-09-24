@@ -153,21 +153,31 @@ def _last_release():
 
 
 def _fetch_release(rel: str) -> bool:
-    """Scarica table+categories della release; scrive SOLO se entrambi ok."""
+    """Scarica table+categories della release; scrive SOLO se entrambi ok.
+
+    G02: i nomi salvati su disco DEVONO essere compatibili con _lb_files()
+    (".lb_table_<d>.csv" e ".lb_categories_<d>.json"). Il nome remoto
+    ("table_<d>.csv") e il nome locale (dot-prefixed, con estensione) sono
+    due cose diverse: tenerli separati in una tabella evita di nuovo lo
+    scollamento che rendeva la release scaricata invisibile al lettore.
+    """
     d = rel.replace("-", "_")
+    targets = (
+        ("table", "table_%s.csv" % d, ".lb_table_%s.csv" % d),
+        ("categories", "categories_%s.json" % d, ".lb_categories_%s.json" % d),
+    )
     got = {}
-    for suffix, fname in (("table", "table_%s.csv" % d),
-                          ("categories", "categories_%s.json" % d)):
+    for suffix, fname, _local in targets:
         body, status = _http_get(LB_BASE + "/" + fname)
         if status == 200 and body:
             got[suffix] = body
     if "table" not in got or "categories" not in got:
         return False
-    for suffix, body in got.items():
+    for suffix, _fname, local in targets:
         try:
-            with open(os.path.join(BASE_DIR, ".lb_%s_%s" % (suffix, d)), "w",
+            with open(os.path.join(BASE_DIR, local), "w",
                       encoding="utf-8", newline="") as f:
-                f.write(body)
+                f.write(got[suffix])
         except Exception as e:
             log_error("benchmark_data/save_release", e)
             return False
