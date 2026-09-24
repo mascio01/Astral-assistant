@@ -534,7 +534,15 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
             return response, attempt_model
         except ErroreAstral as e:
             last_error = f"{e.code}: {e}"
-            console.print(f"[dim][!] {escape(str(attempt_model))} fallito [{escape(e.code)}]: fallback dinamico...[/dim]")
+            console.print(f"[dim][!] {escape(str(attempt_model))} fallito [{escape(e.code)}][/dim]")
+            if getattr(e, "uncertain", False):
+                # [FIX G12] Esito INCERTO (timeout post-invio): la richiesta
+                # potrebbe essere stata accettata dal provider. Cambiare modello
+                # non annulla l'effetto e puo' duplicare costi/side effect, quindi
+                # NON facciamo fallback automatico.
+                console.print("[dim][!] Esito incerto: nessun fallback automatico.[/dim]")
+                raise
+            console.print("[dim]Fallback dinamico in corso...[/dim]")
             continue
         except Exception as e:
             last_error = str(e)

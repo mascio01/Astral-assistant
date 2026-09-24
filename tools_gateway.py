@@ -13,6 +13,15 @@ from core_io import console
 from rich.markup import escape
 from exec_logger import log_execution
 
+# --- Guardia anti-loop (G13) ---
+# call_tool e' il punto di ingresso REALE del modello: la guardia presente in
+# tools_exec.execute_tool non veniva mai raggiunta perche' il gateway chiama
+# direttamente _execute_tool_impl. La replichiamo qui, sullo stesso criterio:
+# la terza invocazione identica consecutiva viene rifiutata senza eseguire.
+_LOOP_MIN_REPEATS = 3
+_LOOP_CALLS = []
+_LOOP_LOCK = threading.Lock()
+
 # --- Kill switch globale ---
 _KILLED = False
 _kill_lock = threading.Lock()
@@ -164,6 +173,65 @@ def _with_timeout(fn, timeout, name, side_effect=False, args=None):
     if box.get("ok"):
         return True, box["res"]
     return False, {"error": f"{type(box['err']).__name__}: {box['err']}"}
+
+
+# Esiti NON riusciti che i backend possono esprimere con 'status' invece che
+# con 'error': senza questa mappatura un fallimento verrebbe contato come
+# successo (circuit breaker mai aperto, diagnosi falsata).
+_FAILURE_STATUSES = {"fail", "failed", "error", "timeout", "aborted", "cancelled"}
+
+
+def _is_failure(res):
+    """[FIX G15] True se l'esito del tool va considerato un fallimento."""
+    if not isinstance(res, dict):
+        return False
+    if res.get("error"):
+        return True
+    st = res.get("status")
+    if isinstance(st, str) and st.strip().lower() in _FAILURE_STATUSES:
+        return True
+    if res.get("ok") is False or res.get("written") is False:
+        return True
+    rc = res.get("returncode", res.get("exit_code"))
+    return isinstance(rc, int) and rc != 0
+
+
+def _loop_signature(name, args):
+    try:
+        return name + "|" + json.dumps(args, sort_keys=True, default=str)
+    except Exception:
+        return name + "|" + str(args)
+
+
+def _loop_guard(name, args):
+    """[FIX G13] Guardia anti-loop a livello gateway.
+
+    call_tool e' il punto di ingresso REALE del modello e non passa da
+    tools_exec.execute_tool, quindi la guardia di la' non si applicava mai.
+    Ritorna un dict di errore se la chiamata e' un loop, altrimenti None.
+    """
+    sig = _loop_signature(name, args)
+    with _LOOP_LOCK:
+        _LOOP_CALLS.append(sig)
+        if len(_LOOP_CALLS) > _LOOP_MIN_REPEATS * 4:
+            del _LOOP_CALLS[:-_LOOP_MIN_REPEATS * 4]
+        streak = 0
+        for s in reversed(_LOOP_CALLS):
+            if s == sig:
+                streak += 1
+            else:
+                break
+    if streak >= _LOOP_MIN_REPEATS:
+        return {
+            "error": (
+                f"Loop rilevato: '{name}' con gli stessi argomenti e' gia' stato "
+                f"eseguito {streak} volte. Non rieseguirlo: usa recall con l'hash "
+                "dell'output troncato, oppure rileggi in blocchi piu' piccoli."
+            ),
+            "loop_guard": True,
+        }
+    return None
+
 
 # --- Registro tool ---
 _TOOL_SPECS = {}
@@ -527,13 +595,17 @@ def schema_stats(schemas):
     return {"count": len(schemas), "chars": chars, "tokens": chars // 4}
 
 def call_tool(name, arguments=None):
-    """Esegue un tool: allowlist + circuit breaker + timeout + kill switch."""
+    """Esegue un tool: anti-loop + allowlist + circuit breaker + timeout + kill switch."""
     args = arguments or {}
     if is_killed():
         return {"error": "Kill switch attivo: chiamate tool bloccate."}
     spec = _TOOL_SPECS.get(name)
     if not spec:
         return {"error": f"Tool sconosciuto o non in allowlist: {name}"}
+    guard = _loop_guard(name, args)
+    if guard is not None:
+        log_execution(name, args, error=guard["error"], duration_ms=0.0)
+        return guard
     br = _breaker(name)
     if not br.allow():
         return {"error": f"Circuit breaker aperto per '{name}': troppi errori recenti."}
@@ -549,13 +621,17 @@ def call_tool(name, arguments=None):
         ok, res = _with_timeout(lambda: spec["handler"](args), spec["timeout"], name,
                                 side_effect=spec.get("side_effect", False), args=args)
     dur = time.perf_counter() - t0
+    # [FIX G15] Un esito falso-positivo (status 'fail', returncode!=0, ok=False)
+    # NON e' un successo: deve aprire il circuit breaker ed essere tracciato.
+    failed = _is_failure(res) or not ok
     err = res.get("error") if isinstance(res, dict) else None
-    if ok and not err:
+    if not failed:
         br.record_success()
     else:
+        if not err and isinstance(res, dict):
+            err = "esito non riuscito: %s" % (res.get("status") or res.get("returncode"))
         br.record_failure()
     log_execution(name, args, error=err, duration_ms=dur * 1000)
     return res
 
 _build_schemas()
-
