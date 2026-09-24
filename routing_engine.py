@@ -77,13 +77,16 @@ PERSONAL_DELTA_MIN_STEP = 0.015
 PERSONAL_DELTA_DECAY = 0.97
 _PERSONAL_LOCK = threading.RLock()
 
-# Pool operativo: LE STESSE IA di prima (specchio di llm_core.DYNAMIC_MODELS_POOL).
+# Pool operativo (specchio di llm_core.DYNAMIC_MODELS_POOL).
 # _pool_dinamico() arricchisce con benchmark_data.pool_suggerito() SOLO le scelte
 # per gruppo, ma il candidato e' sempre selezionato dentro questo stesso set.
+# POLICY DI COSTO: 2 modelli, non 3. Il 0731 e' il default (input 0.04/M);
+# il 4.1-flash entra solo su codice complesso (input 0.10/M, 2.5x).
+# gpt-5.6-luna rimosso: input 0.20/M (5x il 0731) senza vantaggio sulle
+# conversazioni, che sono il 96% dei token in input.
 ROUTING_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "openai/gpt-5.6-luna",
 ]
 
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico)
@@ -246,6 +249,24 @@ _INFO_HINTS = (
 )
 _LONG_HINTS = ("in dettaglio", "passo passo", "analizza tutto", "approfondito", "completo", "molti file", "grande progetto")
 _ACTION_HINTS = ("esegui", "modifica", "crea", "scrivi", "correggi", "installa", "lancia", "sposta", "cancella")
+
+# --- Policy di costo (obiettivo: risparmiare) ---------------------------------
+# Il 0731 costa 0.04 USD/M in input contro 0.10 del 4.1-flash, e l'input e' ~96%
+# dei token di Astral: il 0731 e' quindi il DEFAULT per tutto. Il 4.1-flash entra
+# solo su "codice complesso", dove la qualita' in piu' (LiveBench coding 8.0 vs
+# 7.5) ripaga il sovrapprezzo. Il divario di score ufficiale tra i due e' ~0.15
+# (conversazione) e ~0.28 (codice): i bonus sotto lo coprono con margine.
+_POLICY_DEFAULT_BONUS = 0.45          # premio al 0731 quando NON c'e' codice complesso
+_POLICY_41_ON_DEFAULT = -0.45         # speculare: il 4.1-flash paga il suo costo
+_POLICY_0731_CODE_COMPLEX = 0.30      # il 0731 non e' escluso, ma resta dietro
+_POLICY_41_CODE_COMPLEX = 0.95        # qui il 4.1-flash deve vincere
+_COMPLEX_CHARS = 400                  # prompt lungo = richiesta articolata
+_LONG_HISTORY_CHARS = 18000           # contesto ampio = lavoro in corso
+_COMPLEX_HINTS = (
+    "rifattorizza", "refactor", "ottimizza", "architettura", "algoritmo",
+    "debug", "traceback", "errore", "bug", "performance", "migrazione",
+    "multifile", "piu file", "regex", "concorrenza", "thread", "database",
+)
 _REASONING_HINTS = ("confronta", "progetta", "pianifica", "architettura", "decidi", "valuta", "spiega perché")
 
 
@@ -285,7 +306,20 @@ def _context_features(user_input: str, context=None) -> dict:
     overlap = len(words & prev_words) / max(1, len(words | prev_words))
     tool_phase = _tool_phase(history)
     code = classify_input(text)[0] == "codice" or tool_phase == "codice"
+    history_chars = sum(len(str(m.get("content", ""))) for m in history
+                        if isinstance(m, dict))
+    # "Codice complesso": l'unico caso in cui il modello piu' caro in input
+    # (v4.1-flash) vale il costo. Serve un segnale forte: tool gia' in fase
+    # codice, refactor/debug/architettura, prompt lungo o contesto ampio.
+    # Una richiesta breve e diretta ("scrivi uno script") NON qualifica.
+    code_complex = bool(code) and (
+        tool_phase == "codice"
+        or any(h in lower for h in _COMPLEX_HINTS)
+        or len(text) > _COMPLEX_CHARS
+        or history_chars > _LONG_HISTORY_CHARS
+    )
     return {
+        "code_complex": code_complex,
         "quick": any(h in lower for h in _QUICK_HINTS),
         "long": any(h in lower for h in _LONG_HINTS),
         "action": any(h in lower for h in _ACTION_HINTS),
@@ -294,7 +328,7 @@ def _context_features(user_input: str, context=None) -> dict:
         "tool_phase": tool_phase,
         "input_chars": len(text),
         "history_turns": len(history),
-        "history_chars": sum(len(str(m.get("content", ""))) for m in history if isinstance(m, dict)),
+        "history_chars": history_chars,
         "overlap": round(overlap, 3),
         "changed": bool(previous) and overlap < 0.04,
     }
@@ -330,25 +364,29 @@ def _active_categories(user_input: str, features: dict, primary=None) -> list:
 def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     """Modulatore operativo (scala score 0-10), volutamente piccolo rispetto ai benchmark."""
     bonus = 0.0
-    is_deepseek = model == "deepseek/deepseek-v4-flash-0731"
+    is_0731 = model == "deepseek/deepseek-v4-flash-0731"
     is_ds41 = model == "deepseek/deepseek-v4.1-flash"
-    is_luna = model == "openai/gpt-5.6-luna"
+    code_complex = bool(features.get("code_complex"))
+    # Blocco di policy: decide QUALE dei due modelli e' il default. E' dominante
+    # rispetto ai micro-modulatori sotto, che restano come tie-breaker.
+    if is_0731:
+        bonus += _POLICY_0731_CODE_COMPLEX if code_complex else _POLICY_DEFAULT_BONUS
+    elif is_ds41:
+        bonus += _POLICY_41_CODE_COMPLEX if code_complex else _POLICY_41_ON_DEFAULT
     if features["quick"]:
-        bonus += 0.22 if (is_deepseek or is_ds41) else -0.08
-    if features["long"] or features["history_chars"] > 18000:
-        bonus += 0.35 if is_luna else (0.12 if is_deepseek else -0.04)
-    if features["code"]:
-        bonus += 0.75 if is_ds41 else (0.18 if is_luna else -0.12)
+        bonus += 0.22 if is_0731 else -0.08
+    if features["long"] or features["history_chars"] > _LONG_HISTORY_CHARS:
+        bonus += 0.12 if is_0731 else 0.02
     if features.get("tool_phase") == "codice":
         # Durante una modifica gia' avviata il cambio deve essere applicabile
         # subito: non lasciamo che l'isteresi mantenga il modello conversazionale.
-        bonus += 0.55 if is_ds41 else (-0.10 if is_deepseek else 0.12)
+        bonus += 0.10 if is_0731 else 0.30
     if features["reasoning"]:
-        bonus += 0.30 if is_luna else 0.05
+        bonus += 0.05 if is_0731 else 0.10
     if features["action"]:
-        bonus += 0.12 if is_ds41 else 0.04
+        bonus += 0.04 if is_0731 else 0.12
     if features["changed"]:
-        bonus += 0.08 if (is_luna or is_ds41) else 0.0
+        bonus += 0.0 if is_0731 else 0.08
     # Continuità: evita di cambiare IA per una semplice prosecuzione del filo.
     if features["overlap"] >= 0.15 and model == _state.get("previous"):
         bonus += 0.22
