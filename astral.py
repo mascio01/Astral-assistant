@@ -892,94 +892,29 @@ def main():
                 if not quesito:
                     console.print("[dim]Uso: /verdict [lite] <quesito> (oppure 'verdict [lite] <quesito>') — consiglio di giudici anonimi con verdetto ('lite' = modelli veloci/economici)[/dim]")
                 else:
-                    # protocollo detached: salva quesito + contesto, lancia runner, polling non bloccante
+                    # Servizio unico: avvio detached + attesa bounded (verdict_launcher).
                     try:
-                        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-                        tmp_file = os.path.join(BASE_DIR, ".verdict_quesito.tmp")
-                        verdict_input = _build_verdict_input(quesito, messages)
-                        with open(tmp_file, "w", encoding="utf-8") as f:
-                            f.write(verdict_input)
-                        out_file = os.path.join(BASE_DIR, ".verdict_out.txt")
-                        err_file = os.path.join(BASE_DIR, ".verdict_err.txt")
-                        # rimuove eventuali residui di run precedenti
-                        for _f in (out_file, err_file):
-                            try:
-                                os.remove(_f)
-                            except Exception:
-                                pass
-                        # lancia sempre il runner versionato corretto, accanto ad astral.py.
-                        # Non usare il vecchio nome nascosto '.verdict_runner.py': causava
-                        # avvii falliti dopo i tentativi detached da PowerShell.
-                        _runner_file = os.path.join(BASE_DIR, "verdict_runner.py")
-                        if not os.path.isfile(_runner_file):
-                            raise FileNotFoundError(
-                                f"Runner verdetto assente: {_runner_file}. "
-                                "Ripristinare verdict_runner.py prima di procedere."
-                            )
-                        try:
-                            from verdict.verdict import estimate_verdict_timeout
-                            _verdict_timeout = estimate_verdict_timeout(_v_profilo, verdict_input)
-                        except Exception:
-                            # Fallback prudente solo se il calcolo adattivo non e' disponibile.
-                            _verdict_timeout = 600 if _v_profilo == "lite" else 480
-                        _vp = subprocess.Popen(
-                            [sys.executable, _runner_file, _v_profilo],
-                            cwd=BASE_DIR,
-                            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        _verdict_pid = _vp.pid
-                        # Timeout adattivo: profilo, complessita' del dossier e latenza
-                        # EMA dei giudici. Il processo viene chiuso solo oltre il budget.
-                        _verdict_deadline = time.time() + _verdict_timeout
-                        next_status = time.time() + 120
-                        done = False
-                        while True:
-                            time.sleep(5)
-                            if os.path.exists(out_file):
-                                with open(out_file, "r", encoding="utf-8", errors="replace") as f:
-                                    content = f.read()
-                                if "VERDICT_DONE" in content:
-                                    result = content.replace("VERDICT_DONE", "").strip()
-                                    if result:
-                                        console.print(result)
-                                    elif os.path.exists(err_file):
-                                        with open(err_file, "r", encoding="utf-8", errors="replace") as f:
-                                            error_text = f.read().strip()
-                                        console.print(ui_error(f"[!] Verdetto fallito: {error_text[-1200:]}"))
-                                    done = True
+                        import verdict_launcher as _vl
+                        _dossier = _build_verdict_input(quesito, messages)
+                        _started = _vl.start_verdict(quesito, _v_profilo, dossier=_dossier)
+                        if _started.get('error'):
+                            console.print(ui_error(f"[!] Verdetto non avviato: {_started.get('error')}"))
+                        else:
+                            _job = _started.get('job_id')
+                            console.print(f"[dim]Consiglio {_v_profilo} avviato (job {_job}); attendo l'esito...[/dim]")
+                            while True:
+                                _res = _vl.wait_verdict(25.0, _job)
+                                _st = _res.get('status')
+                                if _st == 'done':
+                                    console.print(_res.get('result') or '(verdetto vuoto)')
+                                    if _res.get('file'):
+                                        console.print(f"[dim]Salvato in {_res.get('file')}[/dim]")
                                     break
-                            # Se il processo è terminato senza il marker, è un errore reale.
-                            if _vp.poll() is not None:
-                                error_text = ""
-                                if os.path.exists(err_file):
-                                    with open(err_file, "r", encoding="utf-8", errors="replace") as f:
-                                        error_text = f.read().strip()
-                                detail = error_text[-1200:] if error_text else f"runner terminato (codice {_vp.returncode}) senza VERDICT_DONE"
-                                console.print(f"[bold orange_red1][!] Verdetto fallito:[/] {escape(detail)}")
-                                done = True
+                                if _st == 'running':
+                                    console.print(f"[dim]Ancora in elaborazione ({_res.get('elapsed_s')}s); continuo ad attendere.[/dim]")
+                                    continue
+                                console.print(ui_error(f"[!] Verdetto {_st}: {_res.get('error')}"))
                                 break
-                            if time.time() >= _verdict_deadline:
-                                try:
-                                    _vp.kill()
-                                except Exception:
-                                    pass
-                                console.print(ui_error(
-                                    f"[!] Verdetto {_v_profilo} oltre il timeout adattivo "
-                                    f"({_verdict_timeout}s; complessita' e velocita' storica considerate)."
-                                ))
-                                done = True
-                                break
-                            if time.time() >= next_status:
-                                console.print("[dim]Il verdetto sta ancora elaborando; continuo ad attendere senza interromperlo.[/dim]")
-                                next_status = time.time() + 120
-                        # pulizia file temporanei
-                        for _f in (tmp_file, out_file, err_file):
-                            try:
-                                os.remove(_f)
-                            except Exception:
-                                pass
                     except Exception as v_e:
                         log_error("verdict/run", v_e)
                         console.print(ui_error(f"[!] Verdetto fallito: {v_e}"))
@@ -1138,7 +1073,10 @@ def main():
                               f"{last_meta['facts']} fatti attivi, finestra {last_meta['window']} turni).[/dim]")
 
             try:
-                response, used_model = call_with_dynamic_fallback(messages, tools_schema=gateway.list_schemas(), primary_model=active_model)
+                response, used_model = call_with_dynamic_fallback(
+                    messages,
+                    tools_schema=gateway.select_schemas(user_input, context=messages),
+                    primary_model=active_model)
             except Exception as e:
                 console.print(f"[orange_red1]{escape(str(e))}[/red]")
                 try:
@@ -1257,7 +1195,9 @@ def main():
                         except Exception:
                             pass
                     response, followup_model = call_with_dynamic_fallback(
-                        messages, tools_schema=gateway.list_schemas(), primary_model=active_model)
+                        messages,
+                        tools_schema=gateway.select_schemas(user_input, context=messages),
+                        primary_model=active_model)
                     record_usage(followup_model, getattr(response, "usage", None))
                     print_telemetry(response, followup_model)
                     msg = response.choices[0].message

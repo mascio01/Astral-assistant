@@ -15,12 +15,20 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 _OVERRIDE_FILE = os.path.join(_DIR, "prices_override.json")
 
 # family/model-parziale: (prompt USD/1M, completion USD/1M)
+# NB: get_price fa match per ID ESATTO (il catalogo non fa piu' sottostringa),
+# quindi le voci utili sono gli ID pieni; gli alias brevi servono a /model.
 PRICES = {
-    "deepseek-v4-flash-0731": (0.07, 0.28),
+    "deepseek/deepseek-v4.1-flash": (0.10, 0.50),
+    "deepseek/deepseek-v4-flash-vision-exp": (0.22, 0.66),
+    "openai/gpt-6-luna": (0.10, 0.50),
+    "deepseek/deepseek-v4-flash-0731": (0.04, 0.64),
+    "deepseek-v4-flash-0731": (0.04, 0.64),
     "deepseek-v4-flash-latest": (0.0352, 0.1056),   # alias '~...-latest' SCONTATO (OpenRouter)
     "deepseek": (0.27, 1.10),
     "glm-5.3-flash": (0.10, 0.30),
-    "deepseek-v4.1-flash": (0.15, 0.60),
+    "deepseek-v4.1-flash": (0.10, 0.50),
+    "deepseek-v4-flash-vision-exp": (0.22, 0.66),
+    "gpt-6-luna": (0.10, 0.50),
     "glm": (0.60, 2.20),
     "qwen": (0.15, 0.60),
     "llama": (0.10, 0.40),
