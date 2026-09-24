@@ -284,7 +284,6 @@ git config core.hooksPath .githooks
 
 - Astral **executes real commands on your machine**. It is designed with guardrails (atomic patches, confirmation for system paths, execution logging), but you are responsible for what you let it do.
 - Never commit your `.env` file or API keys. `.gitignore` already excludes sensitive/runtime files.
-- The `progetti/` folder contains unrelated side projects and is not part of Astral's core.
 - Runtime databases (`*.db`) and audit logs grow over time; you can safely archive or delete them when Astral is not running (it will rebuild what it needs).
 
 ---
