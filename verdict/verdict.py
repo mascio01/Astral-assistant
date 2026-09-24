@@ -19,7 +19,7 @@ from rich.rule import Rule
 
 from core_io import console, log_error
 from verdict.schemas import Parere, VerdettoFinale
-from llm_core import client as _shared_client, print_telemetry
+from llm_core import _get_client as _shared_client_factory, print_telemetry
 
 # --- Config consiglio -------------------------------------------------------
 SIMBOLI = ["Delta", "Omega", "Sigma", "Lambda", "Theta", "Iota", "Kappa", "Rho"]
@@ -584,7 +584,7 @@ def run_verdict(quesito: str, profilo: str = "standard", quiet: bool = False):
         profilo = "standard"
     GIUDICI = PROFILI_GIUDICI[profilo]
     def _delibera():
-        v = asyncio.run(run_verdict_async(_shared_client, quesito, dossier, profilo))
+        v = asyncio.run(run_verdict_async(_shared_client_factory(), quesito, dossier, profilo))
         attivi = [p for p in v.pareri if p.ok]
         completo = bool(attivi) and bool(v.sintesi)
         if not quiet:

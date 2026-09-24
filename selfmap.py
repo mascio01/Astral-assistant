@@ -5,8 +5,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, ".selfmap.md")
 JSON_OUT = os.path.join(ROOT, ".selfmap.json")
 _WATCH_STARTED = False
-EXCLUDE_DIRS = {"__pycache__", ".verdict", "venv", ".git", "node_modules",
-                "_tmp_scripts", "_scratch", ".pytest_cache", ".mypy_cache"}
+EXCLUDE_DIRS = {"__pycache__", ".verdict", "venv", ".venv", ".git", "node_modules",
+                "_tmp_scripts", "_scratch", ".pytest_cache", ".mypy_cache",
+                "build", "dist", ".eggs", "site-packages"}
 EXCLUDE_FILES = {"_explore_temp.py"}
 
 

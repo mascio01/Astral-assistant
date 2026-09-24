@@ -13,6 +13,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import sys
 import threading
 from datetime import datetime, timezone
 
@@ -150,7 +151,7 @@ def _run_tests():
     if has_pytest:
         try:
             r = subprocess.run(
-                ["python", "-m", "pytest", "-q", "--tb=short"],
+                [sys.executable, "-m", "pytest", "-q", "--tb=short"],
                 capture_output=True, text=True, encoding="utf-8",
                 errors="replace", cwd=BASE_DIR, timeout=180,
             )
@@ -170,7 +171,7 @@ def _run_tests():
     for fn in files:
         try:
             r = subprocess.run(
-                ["python", fn], capture_output=True, text=True,
+                [sys.executable, fn], capture_output=True, text=True,
                 encoding="utf-8", errors="replace", cwd=BASE_DIR, timeout=120,
             )
             if r.returncode != 0:
