@@ -92,12 +92,28 @@ def global_exception_handler(exc_type, exc_value, exc_tb):
         sys.__excepthook__(exc_type, exc_value, exc_tb)
         return
     error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-    log_file = os.path.join(BASE_DIR, "error_log.txt")
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(f"[{_dt.now().strftime('%Y-%m-%d %H:%M:%S')}] ERROR:\n{error_msg}\n{'-'*50}\n")
-    started = launch_self_repair(restart=True)
-    print("\n[!] Crash registrato; autoriparazione e riavvio avviati." if started else
-          "\n[!] Crash registrato; avvio autoriparazione fallito.")
+    # [FIX A-09] La scrittura del log del crash e' protetta: un errore I/O
+    # (permessi, disco pieno) non deve impedire la sequenza di recupero.
+    # Fallback minimo su stderr se il file non e' scrivibile.
+    try:
+        log_file = os.path.join(BASE_DIR, "error_log.txt")
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{_dt.now().strftime('%Y-%m-%d %H:%M:%S')}] ERROR:\n{error_msg}\n{'-'*50}\n")
+    except Exception:
+        try:
+            sys.stderr.write("\n[Astral] Crash (log su file non riuscito):\n" + error_msg + "\n")
+        except Exception:
+            pass
+    # Il recovery non dipende dal successo della scrittura del log.
+    try:
+        started = launch_self_repair(restart=True)
+    except Exception:
+        started = False
+    try:
+        print("\n[!] Crash registrato; autoriparazione e riavvio avviati." if started else
+              "\n[!] Crash registrato; avvio autoriparazione fallito.")
+    except Exception:
+        pass
 
 
 def install_exception_hooks():

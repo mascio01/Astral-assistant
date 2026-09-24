@@ -212,12 +212,14 @@ MODELS = {
 }
 
 # Full IDs verificati su OpenRouter (ammessi oltre ai valori di MODELS)
-EXTRA_VALID_MODELS = {"deepseek/deepseek-v4-flash-0731", "deepseek/deepseek-v4.1-flash", "openai/gpt-5.6-sol", "openai/gpt-5.6-luna"}
+EXTRA_VALID_MODELS = {"deepseek/deepseek-v4-flash-0731", "deepseek/deepseek-v4.1-flash"}
 
+# Pool a 2 modelli per policy di costo: il 0731 e' il default (input 0.04/M);
+# il 4.1-flash (input 0.10/M) entra solo su codice complesso. gpt-5.6-luna
+# rimosso: input 0.20/M, 5x il 0731, senza vantaggio sulle conversazioni.
 DYNAMIC_MODELS_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "openai/gpt-5.6-luna"
 ]
 
 current_model = "auto"

@@ -32,7 +32,7 @@ from dataclasses import dataclass, field, asdict
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urljoin
 
 import httpx
 import trafilatura
@@ -102,6 +102,36 @@ def validate_url(url: str) -> tuple:
     return True, ""
 
 
+# [FIX A-02] Numero massimo di redirect seguiti manualmente.
+_MAX_REDIRECTS = 5
+
+
+def _safe_get(do_get, url: str, max_hops: int = _MAX_REDIRECTS):
+    """[FIX A-02] Segue i redirect manualmente validando OGNI destinazione
+    PRIMA di effettuarla (anti-SSRF). `do_get(url)` deve eseguire una singola
+    richiesta SENZA seguire i redirect e ritornare la risposta.
+
+    Ogni Location viene risolta in URL assoluto e passata a validate_url:
+    nessuna richiesta viene inviata verso host non pubblici. Limite di hop
+    per evitare loop di redirect.
+    """
+    current = url
+    for _ in range(max_hops + 1):
+        ok, why = validate_url(current)
+        if not ok:
+            raise ValueError(f"URL bloccato: {why}")
+        r = do_get(current)
+        status = getattr(r, "status_code", 0)
+        if status in (301, 302, 303, 307, 308):
+            location = r.headers.get("location")
+            if not location:
+                return r
+            current = urljoin(current, location)
+            continue
+        return r
+    raise ValueError(f"troppi redirect (oltre {max_hops})")
+
+
 # ----------------------------------------------------------------- risultati
 
 @dataclass
@@ -154,13 +184,11 @@ class HttpxBackend(ScrapeBackend):
         h = {"User-Agent": UA, "Accept-Language": "it-IT,it;q=0.9,en;q=0.8"}
         if headers:
             h.update(headers)
-        with httpx.Client(headers=h, follow_redirects=True,
+        # [FIX A-02] redirect disabilitati: _safe_get valida ogni Location
+        # PRIMA di seguirla (anti-SSRF) e impone un limite di hop.
+        with httpx.Client(headers=h, follow_redirects=False,
                           timeout=FETCH_TIMEOUT) as client:
-            r = client.get(url)
-            # [FIX#7] ogni redirect viene rivalidato prima di usare il contenuto
-            ok_final, why_final = validate_url(str(r.url))
-            if not ok_final:
-                raise ValueError(f"redirect bloccato: {why_final}")
+            r = _safe_get(lambda u: client.get(u), url)
             return FetchResponse(r.status_code, r.text,
                                  r.headers.get("content-type", ""))
 
@@ -180,9 +208,12 @@ class CurlCffiBackend(ScrapeBackend):
         h = {"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"}
         if headers:
             h.update(headers)
-        r = cr.get(url, headers=h, impersonate="chrome",
-                   timeout=FETCH_TIMEOUT, allow_redirects=True)
-        # [FIX#7] rivalidazione della URL finale dopo i redirect
+        # [FIX A-02] redirect disabilitati: _safe_get valida ogni Location
+        # PRIMA di seguirla (anti-SSRF) e impone un limite di hop.
+        r = _safe_get(
+            lambda u: cr.get(u, headers=h, impersonate="chrome",
+                             timeout=FETCH_TIMEOUT, allow_redirects=False),
+            url)
         final_url = getattr(r, "url", url)
         ok_final, why_final = validate_url(str(final_url))
         if not ok_final:
