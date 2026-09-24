@@ -186,11 +186,23 @@ def test_active_categories_aggiunge_contesto_senza_duplicare():
 def test_profile_bonus_premia_i_modelli_giusti():
     quick = R._context_features("dammi solo il risultato veloce")
     assert R._profile_bonus("deepseek/deepseek-v4-flash-0731", quick, "conversazione") > 0
-    code = R._context_features("scrivi uno script python")
-    assert R._profile_bonus("deepseek/deepseek-v4.1-flash", code, "codice") > \
-        R._profile_bonus("deepseek/deepseek-v4-flash-0731", code, "codice")
-    lungo = R._context_features("analizza tutto in dettaglio")
-    assert R._profile_bonus("openai/gpt-5.6-luna", lungo, "codice") > 0
+    # Policy di costo: su codice NON complesso il default e' il 0731 (input 0.04/M).
+    semplice = R._context_features("scrivi uno script python")
+    assert semplice["code_complex"] is False
+    assert R._profile_bonus("deepseek/deepseek-v4-flash-0731", semplice, "codice") > \
+        R._profile_bonus("deepseek/deepseek-v4.1-flash", semplice, "codice")
+    # Su codice COMPLESSO il 4.1-flash (input 0.10/M) deve invece vincere.
+    complesso = R._context_features("rifattorizza e ottimizza questo algoritmo")
+    assert complesso["code_complex"] is True
+    assert R._profile_bonus("deepseek/deepseek-v4.1-flash", complesso, "codice") > \
+        R._profile_bonus("deepseek/deepseek-v4-flash-0731", complesso, "codice")
+
+
+def test_pool_ha_due_modelli_per_policy_di_costo():
+    """Il pool resta a 2 modelli: niente modelli carichi in input nel routing."""
+    assert R.ROUTING_POOL == ["deepseek/deepseek-v4-flash-0731",
+                              "deepseek/deepseek-v4.1-flash"]
+    assert "openai/gpt-5.6-luna" not in R.ROUTING_POOL
 
 
 # ----------------------------------------------------------------------- score

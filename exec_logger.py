@@ -2,6 +2,7 @@
 # exec_logger.py - n8n Pattern 3: log esecuzioni JSONL append-only
 import os
 import json
+import re
 import time
 import threading
 from datetime import datetime
@@ -26,10 +27,36 @@ def _ensure_line_no():
             _line_no = 0
 
 
+# [FIX A-04] Redazione dei segreti prima della serializzazione nei log.
+# Il troncamento per dimensione non oscurava token/password/chiavi.
+_SECRET_KEY_RE = re.compile(
+    r"(pass(word|wd)?|secret|token|api[_-]?key|apikey|authorization|auth|bearer|"
+    r"credential|private[_-]?key|access[_-]?key|client[_-]?secret|session|cookie)",
+    re.IGNORECASE)
+_SECRET_VALUE_RE = re.compile(
+    r"(sk-[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{8,}|Bearer\s+[A-Za-z0-9._\-]{8,}|"
+    r"eyJ[A-Za-z0-9._\-]{10,})")
+_REDACTED = "***REDACTED***"
+
+
+def _redact_value(v):
+    """Redazione ricorsiva di stringhe che sembrano segreti."""
+    if isinstance(v, str):
+        return _SECRET_VALUE_RE.sub(_REDACTED, v)
+    if isinstance(v, dict):
+        return {k: (_REDACTED if _SECRET_KEY_RE.search(str(k)) else _redact_value(val))
+                for k, val in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_redact_value(x) for x in v]
+    return v
+
+
 def log_execution(tool, args, error=None, duration_ms=None, extra=None):
     """Append di una entry JSONL. Non solleva mai eccezioni (fail-safe)."""
     try:
         safe_args = args if isinstance(args, dict) else {"raw": str(args)}
+        # [FIX A-04] redazione dei segreti prima di serializzare
+        safe_args = _redact_value(safe_args)
         try:
             if len(json.dumps(safe_args, default=str)) > 500:
                 safe_args = {"_keys": list(safe_args.keys()), "_note": "args troncati"}
@@ -40,7 +67,7 @@ def log_execution(tool, args, error=None, duration_ms=None, extra=None):
             "tool": str(tool),
             "args": safe_args,
             "status": "error" if error else "ok",
-            "error": str(error)[:500] if error else None,
+            "error": _redact_value(str(error))[:500] if error else None,
             "duration_ms": round(duration_ms, 1) if duration_ms is not None else None,
         }
         if extra:

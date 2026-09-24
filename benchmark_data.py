@@ -396,13 +396,14 @@ def _build_models() -> dict:
 
 
 # ------------------------------------------------------------------ Public --
-# Pool CANONICO: le STESSE IA usate prima della rifattorizzazione
-# (specchio di llm_core.DYNAMIC_MODELS_POOL). Il routing NON si allarga mai
-# oltre questi 3 modelli: qualunque selezione per gruppo cade solo qui dentro.
+# Pool CANONICO (specchio di llm_core.DYNAMIC_MODELS_POOL). Il routing NON si
+# allarga mai oltre questi modelli: qualunque selezione per gruppo cade solo qui.
+# 2 modelli per policy di costo: 0731 e' il default (input 0.04/M), 4.1-flash
+# entra solo su codice complesso (input 0.10/M). gpt-5.6-luna rimosso: input
+# 0.20/M, 5x il 0731, senza vantaggio sulle conversazioni.
 POOL_CANONICO = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "openai/gpt-5.6-luna",
 ]
 
 

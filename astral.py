@@ -495,8 +495,16 @@ def _claim_session_slot():
         atexit.register(_cleanup_with_driver)
         _start_cua_driver()
         return slot
-    except Exception:
-        return 0  # fallback: comportamento della prima sessione
+    except Exception as e:
+        # [FIX A-07] Fail-closed: in caso di errore NON ripieghiamo sullo slot 0
+        # (piu' processi si comporterebbero come la stessa sessione).
+        # Ritorniamo -1: il chiamante blocca l'avvio e l'errore viene loggato.
+        try:
+            from core_io import log_error
+            log_error("claim_session_slot", e)
+        except Exception:
+            pass
+        return -1
 
 
 def main():

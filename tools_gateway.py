@@ -3,6 +3,7 @@
 # Registro + allowlist + namespace + descrizioni on-demand + timeout +
 # circuit breaker + kill switch. I tool esistenti (tools_exec, tools_scrape)
 # restano i backend; il gateway e' l'unico punto di ingresso per il modello.
+import json
 import threading
 import time
 
@@ -61,7 +62,30 @@ def _breaker(name):
     return _CIRCUITS[name]
 
 # --- Timeout wrapper (thread + join) ---
-def _with_timeout(fn, timeout, name, side_effect=False):
+# [FIX A-06] Registro di idempotenza per i tool con effetti collaterali.
+# Un thread Python non e' terminabile: se scade il timeout l'operazione puo'
+# proseguire. Per evitare che un retry duplichi gli effetti collaterali,
+# tracciamo le operazioni in corso per firma (nome+argomenti): una chiamata
+# duplicata non viene rieseguita, e un retry successivo recupera il risultato
+# reale dell'operazione originale invece di ripeterla.
+_INFLIGHT = {}
+_INFLIGHT_LOCK = threading.Lock()
+_INFLIGHT_TTL = 600.0  # secondi: oltre, una entry orfana viene scartata
+
+
+def _sig(name, args):
+    try:
+        return name + "|" + json.dumps(args, sort_keys=True, default=str)
+    except Exception:
+        return name + "|" + str(args)
+
+
+def _purge_inflight(now):
+    for k in [k for k, v in _INFLIGHT.items() if now - v.get("started", now) > _INFLIGHT_TTL]:
+        _INFLIGHT.pop(k, None)
+
+
+def _with_timeout(fn, timeout, name, side_effect=False, args=None):
     """Esegue fn() con timeout di attesa.
 
     [FIX#1/#6] Un thread Python non e' terminabile: allo scadere del timeout il
@@ -70,8 +94,34 @@ def _with_timeout(fn, timeout, name, side_effect=False):
     fallimento e ripeterebbe): restituiamo uno stato 'in_progress' esplicito e
     apriamo il circuit breaker, cosi' i retry automatici sono bloccati finche'
     l'operazione originale non e' presumibilmente conclusa.
+
+    [FIX A-06] In piu', per i tool con effetti collaterali, la firma
+    (nome+argomenti) e' tracciata: le chiamate duplicate non vengono rieseguite
+    e i retry recuperano il risultato reale dell'operazione in corso/conclusa.
     """
     box = {}
+    sig = None
+    if side_effect:
+        sig = _sig(name, args)
+        with _INFLIGHT_LOCK:
+            _purge_inflight(time.time())
+            rec = _INFLIGHT.get(sig)
+            if rec is not None:
+                if rec.get("done"):
+                    _INFLIGHT.pop(sig, None)
+                    if rec.get("ok"):
+                        return True, rec.get("res")
+                    err = rec.get("err")
+                    return False, {"error": f"{type(err).__name__}: {err}"}
+                # operazione identica ancora in corso: NON rieseguire
+                return False, {
+                    "status": "in_progress",
+                    "error": (f"Operazione '{name}' con gli stessi argomenti gia' "
+                              f"in corso: chiamata duplicata bloccata (idempotenza)."),
+                    "retry_allowed": False,
+                }
+            _INFLIGHT[sig] = {"done": False, "ok": None, "res": None,
+                              "err": None, "started": time.time()}
 
     def runner():
         try:
@@ -80,6 +130,15 @@ def _with_timeout(fn, timeout, name, side_effect=False):
         except Exception as e:
             box["err"] = e
             box["ok"] = False
+        finally:
+            if sig is not None:
+                with _INFLIGHT_LOCK:
+                    rec = _INFLIGHT.get(sig)
+                    if rec is not None:
+                        rec["done"] = True
+                        rec["ok"] = box.get("ok")
+                        rec["res"] = box.get("res")
+                        rec["err"] = box.get("err")
 
     t = threading.Thread(target=runner, daemon=True)
     t.start()
@@ -97,6 +156,9 @@ def _with_timeout(fn, timeout, name, side_effect=False):
                 "retry_allowed": False,
             }
         return False, {"error": f"Timeout tool '{name}' dopo {timeout}s"}
+    if sig is not None:
+        with _INFLIGHT_LOCK:
+            _INFLIGHT.pop(sig, None)
     if box.get("ok"):
         return True, box["res"]
     return False, {"error": f"{type(box['err']).__name__}: {box['err']}"}
@@ -359,7 +421,7 @@ def call_tool(name, arguments=None):
             ok = False
     else:
         ok, res = _with_timeout(lambda: spec["handler"](args), spec["timeout"], name,
-                                side_effect=spec.get("side_effect", False))
+                                side_effect=spec.get("side_effect", False), args=args)
     dur = time.perf_counter() - t0
     err = res.get("error") if isinstance(res, dict) else None
     if ok and not err:
