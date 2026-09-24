@@ -291,14 +291,26 @@ def run_meta_maintenance():
         rep = {}
         rep["audit"] = audit_meta() or {}
         rep["prune"] = prune() or {}
+        # [FIX G20] Manutenzione esplicita anche di recall.db/checkpoints.db:
+        # la loro retention operava solo sul save, restando di fatto inattiva
+        # senza nuovi salvataggi.
+        try:
+            from memory_store import maintain_memory
+            rep["store"] = maintain_memory() or {}
+        except Exception:
+            rep["store"] = {}
         os.makedirs(os.path.dirname(wm_file), exist_ok=True)
         with open(wm_file, "w", encoding="utf-8") as f:
             f.write(str(int(time.time())))
-        if rep["prune"].get("purged") or rep["prune"].get("snapshot"):
-            console.print(f"[dim]Manutenzione memoria: {rep['prune'].get('purged', 0)} righe purge, snapshot: {rep['prune'].get('snapshot')}[/dim]")
+        _st = rep.get("store") or {}
+        if (rep["prune"].get("purged") or rep["prune"].get("snapshot")
+                or _st.get("recall") or _st.get("checkpoints")):
+            console.print(
+                f"[dim]Manutenzione memoria: purge={rep['prune'].get('purged', 0)} "
+                f"snapshot={rep['prune'].get('snapshot')} "
+                f"recall={_st.get('recall', 0)} checkpoints={_st.get('checkpoints', 0)}[/dim]")
     except Exception:
         pass  # la manutenzione non deve MAI bloccare il loop utente
-
 
 MAX_SESSIONS = 5  # cap sessioni simultanee
 # Palette stabile per distinguere le sessioni concorrenti nel terminale.
