@@ -192,8 +192,21 @@ def create_task(task_id, title):
         c = _conn()
         try:
             c.execute("BEGIN IMMEDIATE")
+            # [FIX A-08] ID duplicato gestito esplicitamente: idempotente se il
+            # titolo coincide, errore se diverge (prima INSERT OR IGNORE
+            # manteneva silenziosamente il titolo precedente).
+            existing = c.execute(
+                "SELECT title FROM tasks WHERE id=?", (task_id,)
+            ).fetchone()
+            if existing is not None:
+                c.rollback()
+                if existing[0] == title:
+                    slug0 = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:24] or "task"
+                    return {"ok": True, "id": task_id, "branch": f"task/{task_id}-{slug0}",
+                            "idempotent": True}
+                return {"error": f"Task #{task_id} gia' esistente con titolo diverso (titolo: {existing[0]})."}
             c.execute(
-                "INSERT OR IGNORE INTO tasks(id, title) VALUES(?,?)",
+                "INSERT INTO tasks(id, title) VALUES(?,?)",
                 (task_id, title),
             )
             c.commit()
@@ -207,6 +220,17 @@ def create_task(task_id, title):
         # Branch gia' esistente: non e' un errore.
         ok2, _ = _git("checkout", branch)
         if not ok2:
+            # [FIX A-08] Riconciliazione: il branch non esiste e non e' stato
+            # creato -> annulla la registrazione per non lasciare una task
+            # orfana senza branch corrispondente.
+            with _LOCK:
+                c = _conn()
+                try:
+                    c.execute("BEGIN IMMEDIATE")
+                    c.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+                    c.commit()
+                finally:
+                    c.close()
             return {"error": f"Branch non creato: {out}"}
     return {"ok": True, "id": task_id, "branch": branch}
 

@@ -211,12 +211,21 @@ def _execute_tool_impl(name, args):
         path = args.get("path")
         if not path or not os.path.exists(path):
             return {"error": "Percorso non valido o inesistente."}
-        if os.path.isdir(path):
-            ps_cmd = f"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('{path}', 'OnlyErrorDialogs', 'SendToRecycleBin')"
-        else:
-            ps_cmd = f"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{path}', 'OnlyErrorDialogs', 'SendToRecycleBin')"
+        # [FIX A-01] Nessuna interpolazione del percorso nel codice PowerShell:
+        # il path viene passato come variabile d'ambiente e letto con $env:,
+        # neutralizzando apostrofi e metacaratteri (command injection).
+        ps_cmd = (
+            "Add-Type -AssemblyName Microsoft.VisualBasic; "
+            "$p = $env:ASTRAL_TRASH_PATH; "
+            "if ([System.IO.Directory]::Exists($p)) { "
+            "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') "
+            "} else { "
+            "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }"
+        )
+        env = dict(os.environ)
+        env["ASTRAL_TRASH_PATH"] = path
         try:
-            res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + ps_cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+            res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + ps_cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, env=env)
             if res.returncode == 0:
                 return {"status": "success", "message": f"Elemento {path} spostato nel cestino."}
             else:

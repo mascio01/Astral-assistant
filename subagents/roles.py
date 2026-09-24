@@ -24,7 +24,15 @@ def _read_selfmap(max_chars: int = 6000) -> str:
 
 
 def _read_file_rel(rel: str, max_chars: int = 4000) -> str:
-    p = os.path.join(BASE, rel)
+    # [FIX A-03] Confinamento alla root del progetto: risolve il percorso
+    # (inclusi symlink) e rifiuta tutto cio' che esce da BASE. Blocca
+    # traversal con '..', percorsi assoluti e link simbolici fuori repo.
+    if not rel or os.path.isabs(rel):
+        return f"(percorso non consentito: {rel})"
+    base_real = os.path.realpath(BASE)
+    p = os.path.realpath(os.path.join(base_real, rel))
+    if p != base_real and not p.startswith(base_real + os.sep):
+        return f"(percorso fuori dal progetto, bloccato: {rel})"
     try:
         with open(p, "r", encoding="utf-8") as f:
             return f.read()[:max_chars]
