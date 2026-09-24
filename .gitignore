@@ -111,3 +111,8 @@ progetti/
 # Fantacalcio/interim (solo locale, non versionati)
 asta_fantacalcio.py
 _tmp_scripts/
+
+# Documenti sensibili: verdict di consiglio e audit di sicurezza (mai versionati)
+verdict_smart_home_lite.md
+verdicts/
+AUDIT-5-SECURITY-RELIABILITY.md
