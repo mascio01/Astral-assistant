@@ -99,6 +99,9 @@ _*.json
 # Eccezione: il supporto condiviso della suite di test e' codice versionato.
 # Senza di esso i test_*.py non girano su un clone (la regola _*.py lo escludeva).
 !_test_support.py
+# [FIX G08] ui/__init__.py e' codice versionato: la regola _*.py lo escludeva
+# per errore, rendendo il package UI non importabile su un clone.
+!ui/__init__.py
 .astral_sessions.lock*
 .repair_last.json
 verdict/archive/
