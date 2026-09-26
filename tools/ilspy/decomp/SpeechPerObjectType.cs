@@ -1,0 +1,26 @@
+public enum SpeechPerObjectType
+{
+	None,
+	PerMemory,
+	PerRelationship,
+	PerRomanticRelationship,
+	PerCommunityMember,
+	PerCommunityMemberSample,
+	PerListenerCommunityMember,
+	PerListenerCommunityMemberSample,
+	PerCarriedBody,
+	PerKnownCommunity,
+	PerEnemyCommunity,
+	PerEnemyCommunityMemberSample,
+	PerActiveQuest,
+	PerActiveQuestGiver,
+	PerActiveQuestSeeker,
+	PerActiveQuestObject,
+	PerActiveQuestReferringToTarget,
+	PerActiveQuestGivenByTarget,
+	PerListenerAlliedCommunity,
+	PerReferringToCommunityMember,
+	PerUniqueID,
+	PerLooterCommunityMemberSample,
+	PerSpeakerPickpocketedItem
+}

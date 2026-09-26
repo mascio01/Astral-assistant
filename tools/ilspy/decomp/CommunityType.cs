@@ -1,0 +1,19 @@
+public enum CommunityType
+{
+	Player,
+	Normal,
+	Looter,
+	Psycho,
+	AmbientZombie,
+	AmbientLooter,
+	AmbientAnimal,
+	HunterZombie,
+	HunterLooter,
+	RovingTrader,
+	RovingRefugee,
+	Temporary,
+	TemporaryLooter,
+	TemporaryZombie,
+	HunterMercenary,
+	Count
+}

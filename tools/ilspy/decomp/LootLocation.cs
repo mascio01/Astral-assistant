@@ -1,0 +1,21 @@
+public enum LootLocation
+{
+	Invalid,
+	Zombie,
+	Survivor,
+	FEMA,
+	Camp,
+	House,
+	Motel,
+	GeneralStore,
+	HardwareStore,
+	GardeningStore,
+	GunStore,
+	Vehicle,
+	UtilityVehicle,
+	Police,
+	Military,
+	Medical,
+	Bin,
+	VendingMachine
+}

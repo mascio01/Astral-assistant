@@ -1,0 +1,20 @@
+public enum P2PMsgType
+{
+	Invalid,
+	SyncGame,
+	SyncGameAcknowledged,
+	ChunkAcknowledged,
+	InputFrame,
+	SnapshotHash,
+	SnapshotMatched,
+	SnapshotDidNotMatch,
+	SnapshotFull,
+	VoiceRecording,
+	KickFromGame,
+	RequestTerrain,
+	SendTerrain,
+	TerrainChunkAcknowledged,
+	TerrainAcknowledged,
+	HelloNetwork,
+	SessionReady
+}

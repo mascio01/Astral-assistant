@@ -1,0 +1,7 @@
+namespace PartyCSharpSDK;
+
+public enum PARTY_WORK_MODE : uint
+{
+	PARTY_WORK_MODE_AUTOMATIC,
+	PARTY_WORK_MODE_MANUAL
+}

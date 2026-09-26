@@ -1,0 +1,20 @@
+public enum RecentActivityType
+{
+	None,
+	Conversation,
+	Doorbell,
+	Combat,
+	SpeakToSelf,
+	TalkTo,
+	Scared,
+	HighAlert,
+	Blame,
+	Escape,
+	Chase,
+	ThrownAt,
+	EnteredBuilding,
+	Feuding,
+	CaredFor,
+	Assassination,
+	Interesting
+}

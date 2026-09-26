@@ -1,0 +1,19 @@
+public enum AISoundType
+{
+	Invalid,
+	Attack,
+	Hit,
+	Pain,
+	Death,
+	Warning,
+	Suspicious,
+	StealthAttack,
+	Choke,
+	Radio,
+	WokeUpAngry,
+	FoundBody,
+	Explode,
+	Knock,
+	Assassination,
+	Interesting
+}

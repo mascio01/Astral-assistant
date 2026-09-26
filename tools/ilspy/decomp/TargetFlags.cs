@@ -1,0 +1,27 @@
+public enum TargetFlags
+{
+	HasLoadedRangedWeapon = 2,
+	Lost = 4,
+	Inaccessible = 8,
+	Friend = 0x10,
+	KnockedOut = 0x20,
+	DeadOrZombie = 0x40,
+	HaveInvestigatedBody = 0x80,
+	HaveAssignedBlameForAttack = 0x100,
+	EscapedFromTarget = 0x200,
+	HasPaidRespects = 0x400,
+	Dead = 0x800,
+	Crouching = 0x1000,
+	BurningDueToAttack_DEPRECATED = 0x2000,
+	CarryingFriend = 0x4000,
+	Indoors = 0x8000,
+	KnownAssailant = 0x10000,
+	AlarmedBy = 0x20000,
+	TamedBy = 0x40000,
+	HasCarrot = 0x80000,
+	Aiming = 0x100000,
+	KnockedOnGate = 0x200000,
+	OutsideBase = 0x400000,
+	Unconscious = 0x800000,
+	InMovingVehicle = 0x1000000
+}

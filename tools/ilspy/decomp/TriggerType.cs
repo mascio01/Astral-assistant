@@ -1,0 +1,20 @@
+public enum TriggerType
+{
+	Normal,
+	GameStart,
+	BuiltSomething,
+	FeedAnimal,
+	Killed,
+	PickedUp,
+	Skinned,
+	Fled,
+	EverySecond,
+	StoleAnimal,
+	BuildingDestroyed,
+	UsedFakeAntigen,
+	Sold,
+	Investigated,
+	GameLoad,
+	JoinedCommunity,
+	Count
+}

@@ -1,0 +1,8 @@
+namespace PartyCSharpSDK;
+
+public enum PARTY_GENDER : uint
+{
+	PARTY_GENDER_NEUTRAL,
+	PARTY_GENDER_FEMALE,
+	PARTY_GENDER_MALE
+}

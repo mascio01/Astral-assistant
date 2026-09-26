@@ -1,0 +1,19 @@
+public enum FenceModelType
+{
+	FencePost,
+	Fence_N_S,
+	Fence_N_E,
+	Fence_N_E_S,
+	Fence_N_E_S_W,
+	Fence_N_SE,
+	Fence_N_SW,
+	Fence_N_E_SW,
+	Fence_N_SE_SW,
+	Fence_NE_SE,
+	Fence_NE_SW,
+	Fence_NE_SE_SW,
+	Fence_NE_SE_SW_NW,
+	Fence_N_S_Slope,
+	Fence_NE_SW_Slope,
+	Count
+}

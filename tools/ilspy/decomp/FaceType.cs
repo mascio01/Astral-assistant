@@ -1,0 +1,25 @@
+public enum FaceType
+{
+	MaleFace01,
+	MaleFace02,
+	MaleFace1,
+	MaleFace2,
+	MaleFace3,
+	MaleFace4,
+	MaleFace5,
+	MaleFace6,
+	MaleFace7,
+	MaleFace8,
+	MaleZombieFace3,
+	MaleZombieFace4,
+	FemaleFace01,
+	FemaleFace1,
+	FemaleFace2,
+	FemaleFace3,
+	FemaleFace4,
+	FemaleFace5,
+	FemaleFace6,
+	FemaleFace7,
+	FemaleFace8,
+	Count
+}

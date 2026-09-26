@@ -1,0 +1,21 @@
+public enum SpecialSpeechBehaviour
+{
+	None,
+	Introduction,
+	IntroductionShakedown,
+	RepeatShakedown,
+	AskMorale,
+	AskOpinion,
+	AskOpinionOfReferringTo,
+	Gossip,
+	Greeting,
+	OverrideEulogy,
+	DrinkingGameTruth,
+	DrinkingGameLie,
+	PreventEscape,
+	OfferGift,
+	NoReplyChoice,
+	NoReplyChoiceForNPC,
+	TeleportIfFailed,
+	ListenerCanBeDead
+}

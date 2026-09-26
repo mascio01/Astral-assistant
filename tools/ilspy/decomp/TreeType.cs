@@ -1,0 +1,22 @@
+public enum TreeType
+{
+	Conifer1,
+	Conifer2,
+	Conifer3,
+	Conifer4,
+	Conifer5,
+	Conifer6,
+	Conifer7,
+	Conifer8,
+	Pine1,
+	Pine2,
+	Pine3,
+	Deciduous1,
+	Deciduous2,
+	Deciduous3,
+	Deciduous4,
+	Deciduous5,
+	Deciduous6,
+	Deciduous8,
+	Count
+}

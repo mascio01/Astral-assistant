@@ -1,0 +1,27 @@
+public enum FacialExpression
+{
+	Neutral,
+	Happy,
+	Unhappy,
+	Threatening,
+	Suspicious,
+	Aggressive,
+	Resentful,
+	Angry,
+	Wistful,
+	Moved,
+	Sad,
+	Hurt,
+	Surprised,
+	Scared,
+	Delighted,
+	Dismayed,
+	Shocked,
+	Exhausted,
+	Snarl,
+	Quizical,
+	Amused,
+	Unimpressed,
+	Incredulous,
+	Count
+}

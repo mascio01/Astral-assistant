@@ -1,0 +1,9 @@
+public enum GatePolicy
+{
+	OpenableByFriendsExceptWhenInsideAndUnderAttack,
+	OpenableByFriendsEvenWhenUnderAttack,
+	NeverOpenable,
+	CompletelyOpen,
+	OpenableByCommunityExceptWhenInsideAndUnderAttack,
+	OpenableByCommunityEvenWhenUnderAttack
+}

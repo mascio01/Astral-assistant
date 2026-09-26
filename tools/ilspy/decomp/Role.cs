@@ -1,0 +1,22 @@
+public enum Role
+{
+	None,
+	Farmer,
+	Gatherer,
+	Guard,
+	Builder,
+	Repairing,
+	Capturing,
+	Crafter,
+	Lumberjack,
+	Cook,
+	Trader,
+	Miner,
+	Trapper,
+	NoRole,
+	AnimalFeeder,
+	Enforcer,
+	Organizer,
+	Medic,
+	Count
+}

@@ -1,0 +1,25 @@
+public enum RayCastFlags
+{
+	TerrainOnly = 0,
+	CharacterBoundingBoxes = 1,
+	CharacterNonDeterministicHitBoxes = 2,
+	BuildingBoundingBoxes = 4,
+	BuildingMeshes = 8,
+	FenceBoundingBoxes = 0x10,
+	FenceMeshes = 0x20,
+	FencesUnderConstruction = 0x40,
+	SpawnPoints = 0x80,
+	Zones = 0x100,
+	IncludeCharactersInBuildings = 0x200,
+	IgnoreFriendlyCharacters = 0x400,
+	IgnoreUnconsciousCharactersExceptTarget = 0x800,
+	IncludeFenceWire = 0x1000,
+	IsProjectile = 0x2000,
+	AStarDeterministicFixedObstacles = 0x4000,
+	PlantCover = 0x8000,
+	PassablePropsBoundingBoxes = 0x10000,
+	IsBullet = 0x20000,
+	AStarIgnoreFixedObjectOnStartTile = 0x40000,
+	IgnoreTerrain = 0x80000,
+	PlantableCropBoundingBoxes = 0x100000
+}

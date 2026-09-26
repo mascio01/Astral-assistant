@@ -1,0 +1,23 @@
+public enum LogEventType
+{
+	Invalid,
+	Speech,
+	QuestDiscovered,
+	QuestCompleted,
+	QuestFailed,
+	CommunityMemberJoined,
+	CommunityMemberLeft,
+	CommunityMemberDied,
+	CommunityMemberLevelledUp,
+	PlayerJoined,
+	PlayerLeft,
+	DeclaredWar,
+	DeclaredPeace,
+	MadeAlliance,
+	BrokeAlliance,
+	CommunityMemberLevelledDown,
+	NewRecipe,
+	MadeFriends,
+	StartedDating,
+	BrokeUp
+}

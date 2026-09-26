@@ -1,0 +1,22 @@
+public enum SpecifierModifier
+{
+	None,
+	Community,
+	Leader,
+	Partner,
+	Equipped,
+	Owner,
+	Carrying,
+	Carrier,
+	Occupying,
+	NearestMember,
+	OldCommunity,
+	OldLeader,
+	InvaderSource,
+	NearestFollower,
+	LivingPartner,
+	QuestGiver,
+	QuestSeeker,
+	QuestObject,
+	QuestParam
+}

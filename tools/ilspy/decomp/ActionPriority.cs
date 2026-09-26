@@ -1,0 +1,24 @@
+public enum ActionPriority
+{
+	None,
+	Idle,
+	Normal,
+	Mating,
+	Attack,
+	Parry,
+	Dodge,
+	JumpAttack,
+	ChokeHold,
+	HandsUp,
+	Panicking,
+	Hugged,
+	Damaged,
+	GetUp,
+	Choked,
+	Struggle,
+	StruggleFree,
+	Sliding,
+	SlideRecovering,
+	Vaulting,
+	Carried
+}

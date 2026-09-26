@@ -19,6 +19,13 @@ from exec_logger import log_execution
 # direttamente _execute_tool_impl. La replichiamo qui, sullo stesso criterio:
 # la terza invocazione identica consecutiva viene rifiutata senza eseguire.
 _LOOP_MIN_REPEATS = 3
+# [ANTI-LOOP] Oltre alla ripetizione ESATTA e consecutiva, intercettiamo anche:
+# - near-duplicate: stesso tool con argomenti che differiscono solo per dettagli
+#   cosmetici (separatori path /\, whitespace, ordine chiavi). NON usiamo
+#   similarita' carattere-per-carattere: confonderebbe path diversi ma simili
+#   (es. dir0/dir1) con ripetizioni. Normalizziamo e richiediamo match esatto.
+# - pattern alternati A->B->A->B->... che la sola streak consecutiva non vede.
+_LOOP_WINDOW = 16             # quanti call recenti guardare per i pattern (periodo 4 -> serve 3*4=12)
 _LOOP_CALLS = []
 _LOOP_LOCK = threading.Lock()
 
@@ -196,31 +203,59 @@ def _is_failure(res):
     return isinstance(rc, int) and rc != 0
 
 
-def _loop_signature(name, args):
+def _norm_scalar(v):
+    """Normalizza un valore scalare per il confronto anti-loop."""
+    if isinstance(v, str):
+        # unifica separatori path, collassa whitespace, rimuove spazi ai bordi
+        v = v.replace("\\", "/")
+        v = re.sub(r"\s+", " ", v).strip()
+        return v
+    return v
+
+
+def _norm_args(args):
+    """Normalizza ricorsivamente gli argomenti per ignorare differenze cosmetiche."""
+    if isinstance(args, dict):
+        return {k: _norm_args(v) for k, v in args.items()}
+    if isinstance(args, (list, tuple)):
+        return [_norm_args(v) for v in args]
+    return _norm_scalar(args)
+
+
+def _args_json(args):
     try:
-        return name + "|" + json.dumps(args, sort_keys=True, default=str)
+        return json.dumps(_norm_args(args), sort_keys=True, default=str)
     except Exception:
-        return name + "|" + str(args)
+        return str(args)
 
 
 def _loop_guard(name, args):
-    """[FIX G13] Guardia anti-loop a livello gateway.
+    """[FIX G13 + hardening] Guardia anti-loop a livello gateway.
 
     call_tool e' il punto di ingresso REALE del modello e non passa da
     tools_exec.execute_tool, quindi la guardia di la' non si applicava mai.
+    Rileva quattro forme di loop:
+      1) ripetizione ESATTA e consecutiva (streak) - comportamento storico;
+      2) near-duplicate: stesso tool con argomenti quasi identici;
+      3) pattern periodici ripetuti di periodo 2, 3 o 4
+         (A->B->A->B, A->B->C->A->B->C, A->B->C->D->A->B->C->D).
     Ritorna un dict di errore se la chiamata e' un loop, altrimenti None.
     """
-    sig = _loop_signature(name, args)
+    aj = _args_json(args)
+    sig = name + "|" + aj
     with _LOOP_LOCK:
-        _LOOP_CALLS.append(sig)
-        if len(_LOOP_CALLS) > _LOOP_MIN_REPEATS * 4:
-            del _LOOP_CALLS[:-_LOOP_MIN_REPEATS * 4]
-        streak = 0
-        for s in reversed(_LOOP_CALLS):
-            if s == sig:
-                streak += 1
-            else:
-                break
+        _LOOP_CALLS.append((name, sig, aj))
+        if len(_LOOP_CALLS) > _LOOP_WINDOW:
+            del _LOOP_CALLS[:-_LOOP_WINDOW]
+        recent = list(_LOOP_CALLS)
+
+    # 1) Streak esatta consecutiva
+    streak = 0
+    for _n, s, _a in reversed(recent):
+        if s == sig:
+            streak += 1
+        else:
+            break
     if streak >= _LOOP_MIN_REPEATS:
         return {
             "error": (
@@ -230,6 +265,46 @@ def _loop_guard(name, args):
             ),
             "loop_guard": True,
         }
+
+    # 2) Ripetizione NON consecutiva nella finestra (stesso tool, argomenti
+    #    uguali a meno di differenze cosmetiche normalizzate).
+    near = sum(1 for n2, _s2, a2 in recent if n2 == name and a2 == aj)
+    if near >= _LOOP_MIN_REPEATS:
+        return {
+            "error": (
+                f"Loop rilevato: '{name}' e' stato invocato {near} volte con argomenti "
+                "equivalenti (differenze solo cosmetiche). Varia l'approccio (argomenti "
+                "diversi, blocco piu' piccolo o recall) invece di ripetere la chiamata."
+            ),
+            "loop_guard": True,
+        }
+
+    # 3) Pattern periodici ripetuti: A->B->A->B, A->B->C->A->B->C,
+    #    A->B->C->D->A->B->C->D (periodo 2, 3 o 4). Copre i casi in cui il
+    #    modello non ripete call identiche consecutive ma cicla su un piccolo
+    #    insieme di chiamate che non produce avanzamento.
+    #    Richiede almeno _LOOP_MIN_REPEATS ripetizioni complete del ciclo.
+    for period in (2, 3, 4):
+        need = _LOOP_MIN_REPEATS * period
+        if len(recent) < need:
+            continue
+        tail = recent[-need:]
+        block = [c[1] for c in tail[:period]]
+        # il ciclo deve essere "proprio": almeno due firme distinte nel blocco,
+        # altrimenti e' gia' coperto dallo streak esatto (caso 1).
+        if len(set(block)) < 2:
+            continue
+        if all(tail[i][1] == block[i % period] for i in range(need)):
+            names = " -> ".join(c[0] for c in tail[:period])
+            return {
+                "error": (
+                    f"Loop rilevato: pattern periodico di {period} chiamate ripetuto "
+                    f"{_LOOP_MIN_REPEATS} volte senza progresso ({names}). Interrompi il "
+                    "ciclo e cambia strategia: ripetere la stessa sequenza non produce "
+                    "avanzamento."
+                ),
+                "loop_guard": True,
+            }
     return None
 
 

@@ -1,0 +1,23 @@
+public enum SquadAction
+{
+	None,
+	AttackThreat,
+	Pillage,
+	GoTo,
+	Wait,
+	Trade,
+	ExitMap,
+	Bury,
+	Enter,
+	FlyAway,
+	FindTarget,
+	Retreat,
+	GoToHighPrio,
+	StockUpFood,
+	StockUpWater,
+	StopForWarmth,
+	GoToAmbush,
+	TalkToAmbush,
+	SearchForItem,
+	HangAround
+}

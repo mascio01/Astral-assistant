@@ -1,0 +1,23 @@
+public enum TemplateSpawnLocation
+{
+	InheritFromParent,
+	Anywhere,
+	PreferOpenCountryside,
+	PreferRoadEntrance,
+	PreferTownBuildings,
+	PreferTowns,
+	PreferVisitedTowns,
+	PreferSourceTown,
+	PreferCountrysideProps,
+	PreferVehiclesOnRoads,
+	PreferUnownedVehicles,
+	PreferSettlements,
+	PreferLooterSettlements,
+	PreferNonLooterSettlements,
+	AnySettler,
+	AnySettlerOrTrader,
+	PreferLooterSettlers,
+	PreferNonLooterSettlers,
+	PreferTraders,
+	PreferMarker
+}

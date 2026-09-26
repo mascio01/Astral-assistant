@@ -1,0 +1,20 @@
+public enum MemoryRuleSet
+{
+	Normal,
+	Romantic,
+	Personal,
+	Cannibal,
+	Envy,
+	Past,
+	MoralStand,
+	Alliance,
+	Restrain,
+	SelfInterest,
+	Defeated,
+	OnlyNegative,
+	OpinionOfGroup,
+	Rejected,
+	DeclareWar,
+	AlwaysApproveOfMyself,
+	Helped
+}
