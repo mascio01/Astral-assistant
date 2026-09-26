@@ -65,6 +65,52 @@ except Exception as _ui_e:
         return f"[bold orange_red1]{_ui_escape(text)}[/]"
 
 from loop_detector import LoopDetector
+
+
+# --- [ANTI-LOOP] Tetto di sicurezza sul ciclo agentico dei tool -------------
+# Il ciclo `while msg.tool_calls` in main() prosegue finche' il modello emette
+# tool_calls. Le guardie di tools_gateway intercettano solo la ripetizione
+# esatta/near-duplicate consecutiva: una catena lunga di chiamate diverse puo'
+# comunque girare a lungo bruciando token. Qui un tetto configurabile
+# (config.db chiave 'max_tool_rounds', default 30) interrompe il ciclo con
+# hard stop + report diagnostico su file.
+_TOOL_ROUND_DEFAULT = 30
+
+
+def _get_tool_round_cap():
+    """Tetto di round tool per turno (config 'max_tool_rounds', default 30)."""
+    try:
+        raw = get_config("max_tool_rounds", None)
+        if raw is not None:
+            val = int(str(raw).strip())
+            if val > 0:
+                return val
+    except Exception:
+        pass
+    return _TOOL_ROUND_DEFAULT
+
+
+def _log_loop_diagnostic(user_input, used_model, rounds, cap):
+    """[ANTI-LOOP] Report diagnostico quando scatta l'hard stop sul ciclo tool."""
+    try:
+        import datetime as _dt
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        log_dir = os.path.join(base_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        entry = {
+            "ts": _dt.datetime.now().isoformat(timespec="seconds"),
+            "event": "tool_round_cap_hit",
+            "rounds": rounds,
+            "cap": cap,
+            "model": used_model,
+            "input": (user_input or "")[:500],
+        }
+        with open(os.path.join(log_dir, "loop_diagnostics.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 try:
     import voice_feedback
 except Exception:
@@ -78,7 +124,7 @@ def _lights_notify(kind):
             voice_feedback.notify(kind)
         except Exception:
             pass
-from memory_store import checkpoint_pull, checkpoint_save, init_db
+from memory_store import checkpoint_pull, checkpoint_save, get_config, init_db
 from memory_meta import bootstrap_meta, record_usage
 from price_map import all_prices, cost_usd
 from history_store import (
@@ -1127,7 +1173,21 @@ def main():
             tool_followup_error = None
             tool_cancelled = False
             tool_results_for_learning = []
+            # [ANTI-LOOP] Tetto di round tool: hard stop oltre il limite configurabile.
+            _tool_round_cap = _get_tool_round_cap()
+            _tool_round = 0
+            _tool_round_hit = False
             while msg.tool_calls:
+                _tool_round += 1
+                if _tool_round > _tool_round_cap:
+                    _tool_round_hit = True
+                    _log_loop_diagnostic(user_input, used_model, _tool_round - 1, _tool_round_cap)
+                    console.print(ui_error(
+                        f"[!] Limite di sicurezza raggiunto ({_tool_round_cap} round di tool "
+                        "in un singolo turno): interrompo il ciclo per evitare un loop. "
+                        "Riformula la richiesta o suddividila in passi piu' piccoli."
+                    ))
+                    break
                 if msg.content:
                     console.print(f"[dim]{msg.content.strip()}[/dim]")
                 # Strutturiamo il messaggio assistant con i tool calls
@@ -1240,7 +1300,16 @@ def main():
                     break
 
 
-            final_text = "Operazione annullata dall'utente." if tool_cancelled else (msg.content or "").strip()
+            if tool_cancelled:
+                final_text = "Operazione annullata dall'utente."
+            elif _tool_round_hit:
+                final_text = (
+                    f"Limite di sicurezza raggiunto ({_tool_round_cap} round di tool in un "
+                    "singolo turno): ho interrotto il ciclo per evitare un loop infinito. "
+                    "Riformula la richiesta o suddividila in passi piu' piccoli."
+                )
+            else:
+                final_text = (msg.content or "").strip()
             if not final_text:
                 # Fallback: alcuni modelli mettono il testo in reasoning_content o tornano vuoti
                 final_text = (getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or "").strip()

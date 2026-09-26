@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "migrated_from": 1,
+  "migrated_at": "2026-09-25T17:23:37+00:00",
+  "note": "dati curati migrati da knowledge_map v1",
+  "records": [
+    {
+      "id": "api_pricing",
+      "aliases": [
+        "tariffe",
+        "prezzi",
+        "costi",
+        "api pricing",
+        "listino"
+      ],
+      "status": "active",
+      "description": "Statistiche e costi dei modelli usati per routing e budget.",
+      "how_to_read": "Verificare timestamp e file originale prima di decisioni economiche.",
+      "caveats": "I prezzi possono essere incompleti o cambiare lato provider."
+    },
+    {
+      "id": "model_benchmarks",
+      "aliases": [
+        "benchmark",
+        "leaderboard",
+        "prestazioni modelli",
+        "qualita modelli"
+      ],
+      "status": "active",
+      "description": "Dati e statistiche che supportano la scelta dinamica del modello.",
+      "how_to_read": "Usare benchmark_data.py per la logica e i file LB per i dati osservati.",
+      "caveats": "Un benchmark e' un segnale, non una garanzia per ogni prompt."
+    },
+    {
+      "id": "routing_history",
+      "aliases": [
+        "routing",
+        "punteggi personali",
+        "preferenze routing",
+        "decisioni router",
+        "routing audit"
+      ],
+      "status": "active",
+      "description": "Dati aggregati usati per adattare il routing alle categorie osservate.",
+      "how_to_read": "Consultare l'originale solo quando serve una decisione sul routing.",
+      "caveats": "I dati sono storici e possono contenere bias da campione."
+    }
+  ]
+}
