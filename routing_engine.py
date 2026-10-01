@@ -87,18 +87,23 @@ _PERSONAL_LOCK = threading.RLock()
 ROUTING_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
+    "openai/gpt-6-luna",
 ]
 
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico)
+# Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico).
+# La chiave "reasoning" e' quella usata dalla categoria di routing "ragionamento"
+# (score LiveBench reasoning reale); i modelli ereditati dalla famiglia luna
+# condividono gli stessi punteggi LiveBench di gpt-5.6-luna.
 DEFAULT_BENCHMARK = {
-    "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 8.0, "affidabilita": 7.0, "costo": 8.5},
-    "openai/gpt-6-luna": {"conversazione": 7.38, "codice": 7.9, "affidabilita": 5.59, "costo": 8.5},
-    "deepseek/deepseek-v4-flash-vision-exp": {"conversazione": 8.04, "codice": 6.82, "affidabilita": 7.1, "costo": 6.5},
-    "deepseek/deepseek-v4-flash-0731": {"conversazione": 7.92, "codice": 7.5, "affidabilita": 6.55, "costo": 9.0},
-    "openai/gpt-5.6-sol": {"conversazione": 9.5, "codice": 9.0, "affidabilita": 9.5, "costo": 5.0},
-    "deepseek/deepseek-v4-pro": {"conversazione": 8.5, "codice": 8.0, "affidabilita": 8.0, "costo": 6.5},
-    "z-ai/glm-5.3": {"conversazione": 8.0, "codice": 8.5, "affidabilita": 8.5, "costo": 7.0},
-    "openai/gpt-5.6-luna": {"conversazione": 7.26, "codice": 8.29, "affidabilita": 6.01, "costo": 7.5},
+    "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 8.0, "reasoning": 8.67, "affidabilita": 7.0, "costo": 8.5},
+    "openai/gpt-6-luna": {"conversazione": 7.26, "codice": 8.29, "reasoning": 8.56, "affidabilita": 6.01, "costo": 7.9},
+    "deepseek/deepseek-v4-flash-vision-exp": {"conversazione": 8.04, "codice": 6.82, "reasoning": 8.54, "affidabilita": 7.1, "costo": 6.5},
+    "deepseek/deepseek-v4-flash-0731": {"conversazione": 7.92, "codice": 7.5, "reasoning": 8.66, "affidabilita": 6.55, "costo": 9.0},
+    "openai/gpt-5.6-sol": {"conversazione": 9.5, "codice": 9.0, "reasoning": 9.16, "affidabilita": 9.5, "costo": 5.0},
+    "deepseek/deepseek-v4-pro": {"conversazione": 8.5, "codice": 8.0, "reasoning": 8.27, "affidabilita": 8.0, "costo": 6.5},
+    "z-ai/glm-5.3": {"conversazione": 8.0, "codice": 8.5, "reasoning": 8.58, "affidabilita": 8.5, "costo": 7.0},
+    "openai/gpt-5.6-luna": {"conversazione": 7.26, "codice": 8.29, "reasoning": 8.56, "affidabilita": 6.01, "costo": 7.5},
 }
 
 _CODE_MARKERS = ["`", "def ", "class ", "import ", "function", "=>", "const ",
@@ -110,11 +115,37 @@ _CODICE_KW = [
     "debug", "bug", "errore", "exception", "traceback", "syntax", "refactor",
     "rifattorizza", "compila", "build", "pyinstaller", "pip", "npm", "git", "regex",
     "json", "endpoint", "api rest", "query", "database", "terminale", "classe",
+    # Lavoro su binari/sorgenti compilati (reverse engineering, mod, patching di
+    # assembly). Senza questi termini una richiesta di modding veniva letta come
+    # semplice conversazione. Parole piene: nessun prefisso ambiguo.
+    "decompila", "decompilare", "decompilazione", "disassembla", "disassemblare",
+    "assembly", "bytecode", "compilatore", "dll", "plugin", "patch",
+    "harmony", "bepinex", "modding",
 ]
 _CODE_TOOL_NAMES = {
     "apply_code_patch", "test_python_file", "tools_patch", "tools_test",
     "repair_from_log", "selfmap", "py_compile",
 }
+# Marker di LAVORO sul codice dentro tool GENERICI (run_powershell_cmd & simili):
+# leggere/decompilare sorgenti o manipolare assembly e' lavoro di codice anche se
+# il tool non appartiene a _CODE_TOOL_NAMES. Senza questi segnali una sessione di
+# reverse engineering veniva degradata a "conversazione" e restava sul modello
+# language (caso reale: decompilazione di "Survivalist Invisible Strain").
+_CODE_WORK_MARKERS = (
+    "ilspy", "dnspy", "ildasm", "monodis", "decompil", "assembly-csharp",
+    ".dll", ".cs\"", ".cs'", ".cs ", "dotnet ", "csc.exe", "harmony",
+    "bepinex",
+)
+# Frammenti tipici di SORGENTE nei result dei tool: dicono che il contenuto letto
+# e' codice, non prosa. Volutamente specifici (niente "class "/"function" nudi)
+# per non far scattare la fase-codice su output generici.
+_CODE_CONTENT_MARKERS = (
+    "namespace ", "using system", "public class ", "public static ",
+    "private void ", "internal class ", "ilspy", "dnspy", "bepinex",
+)
+_TOOL_CODE_MARKERS = ("apply_code_patch", "test_python_file", "traceback",
+                     "syntaxerror") + _CODE_CONTENT_MARKERS
+_CONTENT_PROBE_CHARS = 6000  # finestra di scansione: evita costi O(n) su dump enormi
 
 _state = {"previous": None, "streak": {}, "last": None, "context_signature": "", "context_epoch": 0}
 _telemetry_enabled = True
@@ -133,6 +164,14 @@ _POOL_CACHE = list(ROUTING_POOL)
 _POOL_CACHE_TS = float("-inf")
 _TELEMETRY_COST_CACHE = None
 _TELEMETRY_COST_CACHE_TS = 0.0
+# Previsione dei token: statistiche di usage_log aggiornate una volta al giorno,
+# come benchmark e pool (nessuna query SQLite a ogni messaggio).
+_TOKEN_STATS_CACHE = None
+_TOKEN_STATS_TS = float("-inf")
+_TOKEN_STATS_TTL = 24 * 3600.0
+# Pari merito: entro questo scarto di score decide il costo previsto per la
+# lunghezza stimata della richiesta ("vince il migliore, a parita' il piu' conveniente").
+TIE_EPS = 0.05
 # Benchmark e pool cambiano con il sync giornaliero; solo la telemetria resta breve.
 _BENCH_CACHE_TTL = 24 * 3600.0
 # Se l'idratazione fallisce (rete assente / get_models() vuoto) non ha senso
@@ -269,7 +308,32 @@ _COMPLEX_HINTS = (
     "debug", "traceback", "errore", "bug", "performance", "migrazione",
     "multifile", "piu file", "regex", "concorrenza", "thread", "database",
 )
+_REASONING_MIN_SIGNALS = 2   # segnali minimi per aprire la categoria ragionamento
 _REASONING_HINTS = ("confronta", "progetta", "pianifica", "architettura", "decidi", "valuta", "spiega perché")
+
+
+# Segnali FORTI di ragionamento: richieste che chiedono di ragionare in piu'
+# passaggi, non di sapere un fatto. Sono l'ossatura della categoria
+# "ragionamento": ne servono almeno _REASONING_MIN_SIGNALS per aprire il gate
+# (un solo verbo non basta: "valuta" compare anche in frasi conversazionali).
+_REASONING_STRONG = (
+    "ragiona", "ragionamento", "step by step", "passo per passo", "catena di passaggi",
+    "dimostra", "dimostrazione", "deduci", "inferisci", "deriva", "formalizza",
+    "teorema", "puzzle", "enigma", "indovinello", "trovare l'errore",
+    "calcola", "calcolo", "equazione", "probabilita", "combinatoria",
+    "trade-off", "tradeoff", "pro e contro", "costi e benefici",
+    "architettura", "strategia", "pianifica", "progetta",
+)
+# Segnali DEBOLI: da soli non aprono la categoria, pesano solo come conferma.
+_REASONING_WEAK = ("confronta", "decidi", "valuta", "perche", "scegli",
+                   "ragioni", "analizza", "ottimizza")
+
+
+def _reasoning_signals(lower: str) -> int:
+    """Numero di segnali di ragionamento indipendenti (forti + deboli)."""
+    strong = sum(1 for h in _REASONING_STRONG if h in lower)
+    weak = sum(1 for h in _REASONING_WEAK if h in lower)
+    return strong + weak
 
 
 def _tool_phase(context=None) -> str | None:
@@ -287,11 +351,17 @@ def _tool_phase(context=None) -> str | None:
             name = function.get("name", "") if isinstance(function, dict) else ""
             if name in _CODE_TOOL_NAMES:
                 return "codice"
-        content = str(message.get("content", ""))
-        if message.get("role") == "tool" and any(
-            marker in content.lower() for marker in ("apply_code_patch", "test_python_file", "traceback", "syntaxerror")
-        ):
-            return "codice"
+            # Tool generico puntato su sorgenti/assembly (es. run_powershell_cmd
+            # con Get-Content di un .cs o con un decompilatore): e' lavoro di codice
+            # anche se il nome del tool non lo dichiara.
+            if isinstance(function, dict):
+                args = str(function.get("arguments", "")).lower()
+                if args and any(marker in args for marker in _CODE_WORK_MARKERS):
+                    return "codice"
+        if message.get("role") == "tool":
+            content = str(message.get("content", ""))[:_CONTENT_PROBE_CHARS].lower()
+            if any(marker in content for marker in _TOOL_CODE_MARKERS):
+                return "codice"
     return None
 
 
@@ -326,6 +396,7 @@ def _context_features(user_input: str, context=None) -> dict:
         "long": any(h in lower for h in _LONG_HINTS),
         "action": any(h in lower for h in _ACTION_HINTS),
         "reasoning": any(h in lower for h in _REASONING_HINTS),
+        "reasoning_signals": _reasoning_signals(lower),
         "code": code,
         "tool_phase": tool_phase,
         "input_chars": len(text),
@@ -369,6 +440,18 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     is_0731 = model == "deepseek/deepseek-v4-flash-0731"
     is_ds41 = model == "deepseek/deepseek-v4.1-flash"
     code_complex = bool(features.get("code_complex"))
+    # Categoria ragionamento: il bonus spegne il premio di policy al 0731 e
+    # lascia decidere il benchmark reasoning. Il 0731 (8.66) e il 4.1-flash
+    # (8.67) sono pari entro TIE_EPS: qui vince chi costa meno per la
+    # lunghezza prevista, non un premio fisso. Il luna (8.56) resta dietro.
+    is_reasoning = categoria == "ragionamento"
+    if is_reasoning:
+        # Neutralizza il blocco di policy: senza questo il 0731 partirebbe con
+        # +0.45 e il confronto sul reasoning reale non avverrebbe mai.
+        if is_0731:
+            bonus -= _POLICY_DEFAULT_BONUS
+        elif is_ds41:
+            bonus -= _POLICY_41_ON_DEFAULT
     # Blocco di policy: decide QUALE dei due modelli e' il default. E' dominante
     # rispetto ai micro-modulatori sotto, che restano come tie-breaker.
     if is_0731:
@@ -384,7 +467,12 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
         # subito: non lasciamo che l'isteresi mantenga il modello conversazionale.
         bonus += 0.10 if is_0731 else 0.30
     if features["reasoning"]:
-        bonus += 0.05 if is_0731 else 0.10
+        if is_reasoning:
+            # Nella categoria ragionamento il segnale non deve falsare il
+            # confronto: i tre modelli sono tutti "reasoning-capable".
+            bonus += 0.0
+        else:
+            bonus += 0.05 if is_0731 else (0.10 if is_ds41 else 0.08)
     if features["action"]:
         bonus += 0.04 if is_0731 else 0.12
     if features["changed"]:
@@ -403,6 +491,12 @@ def classify_input(text: str):
     n_kw = sum(1 for kw in _CODICE_KW if re.search(r"\b" + re.escape(kw) + r"\b", lower))
     n_mk = sum(1 for m in _CODE_MARKERS if m in (text or ""))
     if n_kw + n_mk == 0:
+        # Il ragionamento viene PRIMA dell'informativo: una domanda che chiede di
+        # dedurre/confrontare non e' una semplice richiesta di nozioni. Resta
+        # comunque DOPO il codice, che ha la precedenza in virtu' dei suoi marker.
+        n_reason = _reasoning_signals(lower)
+        if n_reason >= _REASONING_MIN_SIGNALS:
+            return "ragionamento", min(0.90, 0.60 + 0.08 * n_reason)
         n_info = sum(1 for h in _INFO_HINTS if h in lower)
         if n_info >= 1:
             return "informativo", min(0.90, 0.60 + 0.08 * n_info)
@@ -422,6 +516,12 @@ def answer_format_hint(text: str, categoria: str | None = None) -> str:
                 "NIENTE elenchi puntati lunghi, NIENTE tono da documentazione tecnica. "
                 "Prosa breve (max ~150 parole), al massimo 2-3 punti chiave solo se "
                 "davvero utili. Vai al sodo.")
+    if cat == "ragionamento":
+        return ("FORMATO RISPOSTA (ragionamento): ragiona in modo esplicito e "
+                "strutturato. Mostra i passaggi chiave, esplicita le ipotesi e "
+                "le assunzioni, arriva a una conclusione chiara. Se usi numeri o "
+                "stime, mostra come li ottieni. Niente prolissita': i passaggi "
+                "che contano, non ogni micro-derivazione.")
     if cat == "conversazione":
         return ("FORMATO RISPOSTA (conversazione): tono naturale e colloquiale, "
                 "risposta breve; niente strutture da documento (tabelle/header) "
@@ -444,7 +544,10 @@ def _hydrate_bench() -> None:
             try:
                 suggested = pool_suggerito()
                 dynamic_pool = []
-                for group in ("codice", "conversazione"):
+                # "reasoning" per ultimo: cosi' i modelli dedicati al ragionamento
+                # (POOL_REASONING_ONLY) entrano nel pool senza scavalcare il
+                # default economico di codice/conversazione.
+                for group in ("codice", "conversazione", "reasoning"):
                     for model in suggested.get(group, []):
                         if model not in dynamic_pool:
                             dynamic_pool.append(model)
@@ -753,6 +856,9 @@ def _slim_audit(record: dict) -> dict:
       record precedente (assenza = pool invariato).
     - ``shadow``: ridondante, e' gia' marcato nel ``motivo``.
     - ``fonte``: derivabile da benchmark_data in lettura, non serve duplicarlo.
+    - ``costo_previsto``: e' la proiezione del costo per QUESTA richiesta, non un
+      dato storico; si conserva perche' serve a calibrare il tie-break a
+      posteriori. I ``token_previsti`` restano come contesto di quella cifra.
     """
     out = dict(record)
     det = out.get("score_details") or {}
@@ -774,6 +880,85 @@ def _slim_audit(record: dict) -> dict:
     return out
 
 
+def _token_stats(force: bool = False) -> dict:
+    """Statistiche di token previsti per richiesta, da usage_log reale.
+
+    Ritorna {"prompt": mediana prompt_tokens, "completion": mediana
+    completion_tokens, "n": righe osservate}. Cache 24h: la query SQLite gira
+    al primo uso della giornata, non a ogni messaggio. Su dati assenti si usano
+    default prudenti (prompt 8000, completion 512) per non azzerare il confronto.
+    """
+    global _TOKEN_STATS_CACHE, _TOKEN_STATS_TS
+    now = time.time()
+    if (_TOKEN_STATS_CACHE is not None and not force
+            and now - _TOKEN_STATS_TS < _TOKEN_STATS_TTL):
+        return _TOKEN_STATS_CACHE
+    stats = {"prompt": 8000.0, "completion": 512.0, "n": 0}
+    try:
+        from memory_meta import usage_rows
+        rows = usage_rows(days=30)
+        prompt = sorted(int(r.get("prompt_tokens") or 0) for r in rows
+                        if int(r.get("prompt_tokens") or 0) > 0)
+        completion = sorted(int(r.get("completion_tokens") or 0) for r in rows
+                            if int(r.get("completion_tokens") or 0) > 0)
+
+        def _median(values):
+            n = len(values)
+            if not n:
+                return None
+            mid = n // 2
+            return float(values[mid]) if n % 2 else (values[mid - 1] + values[mid]) / 2.0
+
+        med_p = _median(prompt)
+        med_c = _median(completion)
+        if med_p:
+            stats["prompt"] = med_p
+        if med_c:
+            stats["completion"] = med_c
+        stats["n"] = len(rows)
+    except Exception as e:
+        log_error("routing_engine/token_stats", e)
+    _TOKEN_STATS_CACHE = stats
+    _TOKEN_STATS_TS = now
+    return stats
+
+
+def _expected_tokens(user_input: str, context=None, stats: dict = None) -> dict:
+    """Stima (prompt, completion) per questa richiesta.
+
+    Il prompt atteso parte dalla mediana reale e viene scalato sull'input
+    corrente (l'input e' ~96% del totale in Astral); la completion parte dalla
+    mediana, con un margine per le richieste di ragionamento, che producono piu'
+    testo di una conversazione breve.
+    """
+    st = stats or _token_stats()
+    text = user_input or ""
+    base_p = float(st.get("prompt") or 8000.0)
+    base_c = float(st.get("completion") or 512.0)
+    ratio = max(0.5, min(3.0, (len(text) + 1) / 600.0))
+    prompt = base_p * ratio
+    if context:
+        hist = sum(len(str(m.get("content", ""))) for m in context
+                   if isinstance(m, dict))
+        prompt += hist / 4.0  # ~4 caratteri per token, stima prudente
+    categoria, _ = classify_input(text)
+    completion = base_c * (2.5 if categoria == "ragionamento" else 1.0)
+    return {"prompt": round(prompt, 1), "completion": round(completion, 1)}
+
+
+def _tie_break_by_cost(scores: dict, costo_previsto: dict, eps: float = None) -> str:
+    """Vincitore come max(score); a PARI MERITO (entro eps) vince il piu'
+    economico per la lunghezza prevista. Ritorna il modello scelto."""
+    if not scores:
+        return None
+    eps = TIE_EPS if eps is None else eps
+    top = max(scores.values())
+    pari = [m for m, s in scores.items() if top - s <= eps]
+    if len(pari) <= 1:
+        return max(scores, key=lambda k: scores[k])
+    return min(pari, key=lambda m: (costo_previsto.get(m, float("inf")), -scores[m]))
+
+
 def _pool_dinamico() -> list:
     """Restituisce il pool gia' calcolato in memoria.
 
@@ -788,9 +973,10 @@ def decide_model(user_input: str, context=None) -> dict:
     """Decisione pesata su richiesta, carico previsto e continuità dello storico."""
     bench = _bench()
     categoria, conf = classify_input(user_input)
-    # "informativo" non esiste nei benchmark: per la scelta del modello pesa
-    # come "conversazione", ma resta categoria a se' per learning/formato.
-    bench_cat = "conversazione" if categoria == "informativo" else categoria
+    # Mappatura categoria Astral -> chiave benchmark LiveBench:
+    #   informativo  -> conversazione (non esiste nei benchmark)
+    #   ragionamento -> reasoning      (score LiveBench reasoning reale)
+    bench_cat = _bench_key(categoria)
     tool_phase = _tool_phase(context)
     if tool_phase == "codice":
         # La fase operativa prevale sul testo originale: il lavoro puo' essere
@@ -802,6 +988,9 @@ def decide_model(user_input: str, context=None) -> dict:
     pool = _pool_dinamico()
     personal = _personal_scores()
     telemetry_costs = _telemetry_costs(bench)
+    # Previsione dei token per QUESTA richiesta: serve al tie-break a pari merito
+    # ("vince il migliore, a parita' il piu' conveniente per la lunghezza attesa").
+    expected = _expected_tokens(user_input, context)
     score_details = {}
     base_scores = {}
     for m in pool:
@@ -818,7 +1007,19 @@ def decide_model(user_input: str, context=None) -> dict:
             "costo_per_1000_token": costo_k,
         }
     scores = {m: round(base_scores[m] + _profile_bonus(m, features, categoria), 3) for m in pool}
-    best = max(scores, key=lambda k: scores[k])
+    # Costo previsto per la lunghezza stimata: usato SOLO a pari merito.
+    costo_previsto = {}
+    for m in pool:
+        prices = get_price(m)
+        if prices:
+            pin, pout = float(prices[0]), float(prices[1])
+        else:
+            b = bench.get(m) or DEFAULT_BENCHMARK.get(m) or {}
+            pin = float(b.get("prezzo_in", 0) or 0)
+            pout = float(b.get("prezzo_out", 0) or 0)
+        costo_previsto[m] = round(
+            (pin * expected["prompt"] + pout * expected["completion"]) / 1e6, 6)
+    best = _tie_break_by_cost(scores, costo_previsto)
     prev = _state.get("previous")
     if prev not in scores:
         prev = pool[0]
@@ -860,6 +1061,7 @@ def decide_model(user_input: str, context=None) -> dict:
         "pesi": dict(PESI),
         "scores": scores, "score_details": score_details,
         "telemetry_cost_windows": telemetry_costs,
+        "token_previsti": expected, "costo_previsto": costo_previsto,
         "scelto": scelta, "best": best,
         "margine": margine, "motivo": motivo,
     }
@@ -882,6 +1084,17 @@ def _macro_categoria(categoria: str) -> str:
         return GROUP_ROUTING.get(categoria, categoria)
     except Exception:
         return categoria
+
+
+def _bench_key(categoria: str) -> str:
+    """Chiave da leggere nel benchmark per una categoria di routing.
+    Le categorie senza voce propria (informativo) ricadono su conversazione;
+    ragionamento legge la chiave "reasoning" (macro LiveBench reale)."""
+    if categoria == "informativo":
+        return "conversazione"
+    if categoria == "ragionamento":
+        return "reasoning"
+    return categoria
 
 
 def descrivi_ultima_decisione(active_model: str) -> str:
