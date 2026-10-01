@@ -95,6 +95,57 @@ def test_classify_input_confidenza_cresce_coi_segnali():
     assert c2 > c1
 
 
+# ------------------------------------------------------------------ ragionamento
+
+def test_classify_input_ragionamento():
+    cat, conf = R.classify_input("ragiona passo per passo su questo puzzle logico")
+    assert cat == "ragionamento"
+    assert 0.55 <= conf <= 0.90
+    assert R.classify_input("dimostra il teorema e calcola la probabilita")[0] == "ragionamento"
+    assert R.classify_input("confronta le due architetture e valuta i trade-off")[0] == "ragionamento"
+
+
+def test_classify_input_ragionamento_non_ruba_il_codice():
+    """Il codice ha la precedenza: un problema di codice resta codice."""
+    assert R.classify_input("scrivi uno script python che calcola la probabilita")[0] == "codice"
+
+
+def test_classify_input_ragionamento_non_scatta_su_fatti_semplici():
+    """Un fatto non e' un ragionamento: resta informativo/conversazione."""
+    assert R.classify_input("spiega perche il cielo e blu")[0] == "informativo"
+    assert R.classify_input("ciao come stai")[0] == "conversazione"
+
+
+def test_bench_key_mappa_le_categorie():
+    assert R._bench_key("ragionamento") == "reasoning"
+    assert R._bench_key("informativo") == "conversazione"
+    assert R._bench_key("codice") == "codice"
+
+
+def test_answer_format_hint_ragionamento():
+    hint = R.answer_format_hint("ragiona passo per passo su questo problema")
+    assert "ragiona" in hint.lower()
+    assert "passaggi" in hint.lower()
+
+
+def test_tie_break_sceglie_il_piu_economico_a_pari_merito():
+    scores = {"a": 8.0, "b": 8.01, "c": 7.0}
+    # a e b sono pari (entro 0.05): vince b per costo previsto piu' basso.
+    costi = {"a": 0.001, "b": 0.0004, "c": 0.0}
+    assert R._tie_break_by_cost(scores, costi) == "b"
+    # Fuori dalla soglia di pari merito decide lo score, non il costo.
+    assert R._tie_break_by_cost({"a": 9.0, "b": 8.0}, {"a": 1.0, "b": 0.0}) == "a"
+
+
+def test_expected_tokens_cresce_col_ragionamento():
+    stats = {"prompt": 1000.0, "completion": 100.0, "n": 10}
+    t_conv = R._expected_tokens("ciao", None, stats)
+    t_reason = R._expected_tokens("ragiona passo per passo su questo problema", None, stats)
+    assert t_reason["completion"] > t_conv["completion"]
+    assert t_reason["prompt"] > 0 and t_conv["prompt"] > 0
+    assert R._tie_break_by_cost({"a": 9.0, "b": 8.0}, {"a": 1.0, "b": 0.0}) == "a"
+
+
 def test_classify_input_marker_di_codice_senza_keyword():
     cat, conf = R.classify_input("def foo():\n    return 1")
     assert cat == "codice"
@@ -155,6 +206,35 @@ def test_tool_phase_riconosce_i_tool_di_codice():
     assert R._tool_phase(None) is None
 
 
+def test_tool_phase_riconosce_lavoro_su_codice_con_tool_generico():
+    # Caso reale: decompilazione di un assembly con run_powershell_cmd.
+    storia = [{"role": "assistant", "content": "", "tool_calls": [
+        {"id": "1", "function": {"name": "run_powershell_cmd",
+                                  "arguments": "{\"command\": \"ilspy GameImpl.dll\"}"}}]}]
+    assert R._tool_phase(storia) == "codice"
+    # Sorgente C# nel result, anche senza tool_calls nella storia.
+    storia2 = [{"role": "tool", "tool_call_id": "1",
+                "content": "namespace Game { public class GameImpl { } }"}]
+    assert R._tool_phase(storia2) == "codice"
+
+
+def test_tool_phase_non_scatta_su_tool_generico_neutro():
+    # Comandi generici o output di prosa NON devono diventare "codice".
+    storia = [{"role": "assistant", "content": "", "tool_calls": [
+        {"id": "1", "function": {"name": "run_powershell_cmd",
+                                  "arguments": "{\"command\": \"Get-Process\"}"}}]},
+        {"role": "tool", "tool_call_id": "1",
+         "content": "Handles NPM(K) PM(K) WS(K) Id ProcessName"}]
+    assert R._tool_phase(storia) is None
+
+
+def test_classify_richieste_di_modding_e_decompilazione():
+    assert R.classify_input("decompila il dll del gioco per capire il blocco")[0] == "codice"
+    assert R.classify_input("voglio fare una mod con BepInEx e patchare l'assembly")[0] == "codice"
+    # Nessuna regressione sulla conversazione pura.
+    assert R.classify_input("come stai? raccontami una curiosita")[0] == "conversazione"
+
+
 def test_tool_phase_tollera_messaggi_malformati():
     storia = ["stringa", None, {"tool_calls": ["non-un-dict"]},
               {"tool_calls": [{"function": "non-un-dict"}]}]
@@ -198,10 +278,23 @@ def test_profile_bonus_premia_i_modelli_giusti():
         R._profile_bonus("deepseek/deepseek-v4-flash-0731", complesso, "codice")
 
 
-def test_pool_ha_due_modelli_per_policy_di_costo():
-    """Il pool resta a 2 modelli: niente modelli carichi in input nel routing."""
+def test_profile_bonus_ragionamento_spegne_il_premio_al_0731():
+    """Sul ragionamento il bonus fisso al 0731 deve essere neutralizzato:
+    altrimenti il confronto sul reasoning reale non avverrebbe mai."""
+    feat = R._context_features("ragiona passo per passo e valuta i trade-off")
+    b0731 = R._profile_bonus("deepseek/deepseek-v4-flash-0731", feat, "ragionamento")
+    b41 = R._profile_bonus("deepseek/deepseek-v4.1-flash", feat, "ragionamento")
+    # I due deepseek restano vicini: nessun premio di policy da +0.45.
+    assert abs(b0731 - b41) < 0.30
+
+
+def test_pool_include_il_modello_di_ragionamento():
+    """Il terzo modello serve SOLO il ragionamento: codice/conversazione restano
+    ai due deepseek, che sono la policy di costo."""
     assert R.ROUTING_POOL == ["deepseek/deepseek-v4-flash-0731",
-                              "deepseek/deepseek-v4.1-flash"]
+                              "deepseek/deepseek-v4.1-flash",
+                              "openai/gpt-6-luna"]
+    # Nessun modello "caro" e' entrato come default di conversazione.
     assert "openai/gpt-5.6-luna" not in R.ROUTING_POOL
 
 

@@ -76,6 +76,12 @@ from loop_detector import LoopDetector
 # hard stop + report diagnostico su file.
 _TOOL_ROUND_DEFAULT = 30
 
+# [ANTI-LOOP] Circuit breaker sul loop principale: se piu' turni consecutivi
+# sollevano eccezioni (errore sistemico, es. NameError prima del prompt di
+# input) il loop non deve ritentare all'infinito bruciando CPU/log. Oltre
+# questa soglia la sessione si chiude con un messaggio invece di girare a vuoto.
+_MAX_CONSEC_ERRORS = 5
+
 
 def _get_tool_round_cap():
     """Tetto di round tool per turno (config 'max_tool_rounds', default 30)."""
@@ -613,6 +619,7 @@ def main():
         return
 
     _mt_run = False
+    _consec_errors = 0
     while True:
         try:
             if not _mt_run:
@@ -1340,6 +1347,7 @@ def main():
 
             # Salva periodicamente lo storico per non perderlo in caso di chiusura imprevista
             save_persistent_history(messages)
+            _consec_errors = 0  # turno completato: azzera il contatore errori
 
         except KeyboardInterrupt:
             checkpoint_save(messages)
@@ -1348,8 +1356,17 @@ def main():
             break
         except Exception as e:
             log_error("main_loop", e)
-            started = launch_self_repair()
+            _consec_errors += 1
             console.print(ui_error(f"[!] Errore: {e}"))
+            if _consec_errors >= _MAX_CONSEC_ERRORS:
+                # Circuit breaker: errore sistemico ripetuto. Interrompo invece di
+                # riprovare all'infinito (era la causa di loop a CPU piena nel log).
+                console.print(ui_error(
+                    f"[!] {_consec_errors} errori consecutivi: interrompo la sessione "
+                    "per evitare un loop. Controlla error_log.txt e riavvia."
+                ))
+                break
+            started = launch_self_repair()
             if started:
                 console.print("[dim]Autoriparazione avviata in background; la sessione resta attiva.[/dim]")
 
