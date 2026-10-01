@@ -119,3 +119,8 @@ _tmp_scripts/
 verdict_smart_home_lite.md
 verdicts/
 AUDIT-5-SECURITY-RELIABILITY.md
+
+# Catalogo conoscenza e trascrizioni di sessione: solo locali, mai versionati
+knowledge_catalog.local.json
+RECUPERO_RAGIONAMENTO_*.md
+
