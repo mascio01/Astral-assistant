@@ -328,6 +328,18 @@ def normalize_name(name: str) -> str:
     return s
 
 
+def _family_core(name: str) -> str:
+    """Chiave di FAMIGLIA: vendor e cifre di versione rimossi.
+
+    'openai/gpt-6-luna' e 'openai/gpt-5.6-luna' -> 'gpt-luna'. Serve a far
+    ereditare i punteggi LiveBench a un id nuovo della stessa IA (es. gpt-6-luna
+    da gpt-5.6-luna) quando il nome esatto non compare nella tabella.
+    """
+    s = re.sub(r"^.*/", "", name or "")
+    s = re.sub(r"\d+(\.\d+)*", "", s)
+    return re.sub(r"-+", "-", s).strip("-")
+
+
 def match_lb_to_openrouter(lb_names: list, or_ids: list) -> dict:
     """lb_name -> or_id: diretto, normalizzato, fuzzy (cutoff 0.8, no ':variant')."""
     res = {}
@@ -412,6 +424,24 @@ def _build_models() -> dict:
                       "conversazione": b["conversazione"], "codice": b["codice"],
                       "affidabilita": b["affidabilita"],
                       "fonte": "livebench+openrouter(famiglia)"})
+    # Terza passata: ereditarieta' per FAMIGLIA (stesso nome a meno della
+    # versione). Es. "openai/gpt-6-luna" eredita i punteggi LB di
+    # "openai/gpt-5.6-luna": e' la stessa IA a versione diversa, e senza questo
+    # l'id nuovo resterebbe senza dati reali pur essendo lo stesso modello.
+    fam = {}
+    for mid, e in out.items():
+        if e.get("lb"):
+            fam.setdefault(_family_core(mid), mid)
+    for mid, e in list(out.items()):
+        if e.get("lb"):
+            continue
+        src = fam.get(_family_core(mid))
+        if src and src != mid:
+            b = out[src]
+            e.update({"lb": b["lb"], "lb_release": b.get("lb_release"),
+                      "conversazione": b["conversazione"], "codice": b["codice"],
+                      "affidabilita": b["affidabilita"],
+                      "fonte": "livebench+openrouter(famiglia)"})
     return out
 
 
@@ -424,24 +454,39 @@ def _build_models() -> dict:
 POOL_CANONICO = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
+    "openai/gpt-6-luna",
 ]
 
+# Modelli ammessi SOLO nel gruppo ragionamento. Sono esclusi da codice e
+# conversazione per non alterare la policy di costo (il 0731 resta il default
+# economico dove non serve ragionamento forte).
+POOL_REASONING_ONLY = {
+    "openai/gpt-6-luna",
+}
 
-def pool_suggerito(min_costo: float = 5.5, top: int = 2, ctx_min: int = 32768) -> dict:
-    """Pool di routing consigliato, PARAFRASATO su 2 gruppi (punto 3 del brief):
-    {"codice": [or_id, ...], "conversazione": [or_id, ...]}.
-    Selezione: SOLO tra i modelli di POOL_CANONICO (stesse IA di prima) con
-    punteggi LiveBench reali, prezzo sostenibile e contesto sufficiente.
+
+def pool_suggerito(min_costo: float = 5.5, top: int = 2, ctx_min: int = 32768,
+                   top_reasoning: int = 3) -> dict:
+    """Pool di routing consigliato su 3 gruppi:
+    {"codice": [...], "conversazione": [...], "reasoning": [...]}.
+    Selezione: SOLO tra i modelli di POOL_CANONICO con punteggi LiveBench reali,
+    prezzo sostenibile e contesto sufficiente. I modelli di POOL_REASONING_ONLY
+    sono esclusi da codice/conversazione e ammessi solo nel ragionamento.
     """
     models = get_models()
     cand = [(mid, v) for mid, v in models.items()
             if mid in POOL_CANONICO
-            and v.get("fonte") == "livebench+openrouter"
+            and str(v.get("fonte", "")).startswith("livebench+openrouter")
             and v.get("costo", 0) >= min_costo and v.get("contesto", 0) >= ctx_min]
     out = {}
     for gruppo, chiave in (("codice", "codice"), ("conversazione", "conversazione")):
-        ordi = sorted(cand, key=lambda kv: -kv[1].get(chiave, 0))
+        ordi = sorted((kv for kv in cand if kv[0] not in POOL_REASONING_ONLY),
+                      key=lambda kv: -kv[1].get(chiave, 0))
         out[gruppo] = [mid for mid, _ in ordi[:top]]
+    # Il ragionamento e' l'unico gruppo con un modello dedicato: qui si ordina
+    # per la chiave reasoning reale e si tengono i primi top_reasoning.
+    ordi_r = sorted(cand, key=lambda kv: -kv[1].get("reasoning", 0))
+    out["reasoning"] = [mid for mid, _ in ordi_r[:top_reasoning]]
     return out
 
 
