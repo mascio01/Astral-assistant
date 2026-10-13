@@ -389,6 +389,12 @@ def _h_ask_user_question(args):
             if not label or label.lower() in {"other", "type something.", "next"} or label in labels:
                 return {"error": f"Opzione non valida nella domanda {index + 1}."}
             labels.append(label)
+        try:
+            import sys_notify as _sysn
+            _sysn.notify("Astral - Serve una scelta",
+                         f"{header}: {question}", kind="ask_user")
+        except Exception:
+            pass
         console.print(f"\n[bold cyan]{escape(header)}[/]  {escape(question)}")
         for number, option in enumerate(options, 1):
             console.print(f"  [bold]{number}[/]. {escape(str(option.get('label', '')))} [dim]{escape(str(option.get('description', '')))}[/]")
