@@ -177,6 +177,10 @@ except Exception:
     voice_feedback = None  # indicatore visivo opzionale: mai bloccare il REPL
 
 
+# --- notifiche di sistema -------------------------------------------------
+# Regola: si notifica SOLO se la console di Astral NON e' in primo piano,
+# cosi' nessun toast disturba chi sta gia' guardando la sessione. Tutto e'
+# best-effort: se il modulo manca la sessione continua senza notifiche.
 def _lights_notify(kind):
     """Feedback visivo best-effort: casella colorata in console, mai eccezioni."""
     if voice_feedback is not None:
@@ -184,6 +188,20 @@ def _lights_notify(kind):
             voice_feedback.notify(kind)
         except Exception:
             pass
+
+
+def _sys_notify(title, message, kind="info"):
+    """Notifica di sistema best-effort su avvisi importanti.
+
+    Delega a sys_notify, che decide se notificare in base al focus: se la
+    console di Astral e' in primo piano non arriva nessun disturbo.
+    Mai eccezioni: l'assenza di notifiche non deve rompere il REPL.
+    """
+    try:
+        import sys_notify
+        return sys_notify.notify(title, message, kind=kind)
+    except Exception:
+        return False
 from memory_store import checkpoint_pull, checkpoint_save, get_config, init_db
 from memory_meta import bootstrap_meta, record_usage
 from price_map import all_prices, cost_usd
@@ -1266,6 +1284,12 @@ def main():
                         f"{_tool_token_budget:,}): interrompo il ciclo per contenere i costi. "
                         "Riformula la richiesta o suddividila in passi piu' piccoli."
                     ))
+                    _sys_notify(
+                        "Astral - Turno interrotto",
+                        f"Budget token superato ({_tool_tokens:,} > {_tool_token_budget:,}): "
+                        "ciclo di tool interrotto per contenere i costi.",
+                        kind="token_budget",
+                    )
                     break
                 # Limite assoluto di sicurezza: stop senza chiedere.
                 if _tool_round > _tool_round_hard:
@@ -1278,6 +1302,11 @@ def main():
                         "singolo turno): interrompo il ciclo per evitare un loop. "
                         "Riformula la richiesta o suddividila in passi piu' piccoli."
                     ))
+                    _sys_notify(
+                        "Astral - Limite raggiunto",
+                        f"Stop di sicurezza: {_tool_round_hard} round di tool in un singolo turno.",
+                        kind="hard_stop",
+                    )
                     break
                 # Avvisi non bloccanti: il ragionamento continua.
                 if _tool_round >= _tool_round_warn1 and not _warned_30:
@@ -1286,6 +1315,11 @@ def main():
                         f"[!] Attenzione: {_tool_round} round di tool in questo turno "
                         f"({_tool_tokens:,} token finora). Il turno sta diventando lungo."
                     ))
+                    _sys_notify(
+                        "Astral - Avviso",
+                        f"Turno lungo: {_tool_round} round di tool ({_tool_tokens:,} token).",
+                        kind="warn_rounds",
+                    )
                 if _tool_round >= _tool_round_warn2 and not _warned_100:
                     _warned_100 = True
                     console.print(ui_error(
@@ -1293,6 +1327,11 @@ def main():
                         f"({_tool_tokens:,} token finora). Ci stiamo avvicinando al limite "
                         "di sicurezza."
                     ))
+                    _sys_notify(
+                        "Astral - Avviso importante",
+                        f"Prossimo al limite: {_tool_round} round di tool ({_tool_tokens:,} token).",
+                        kind="warn_rounds2",
+                    )
                 # Soft-limit: avvisa e chiedi conferma una sola volta.
                 if _tool_round > _tool_round_soft and not _soft_asked:
                     _soft_asked = True
@@ -1301,6 +1340,11 @@ def main():
                         f"({_tool_tokens:,} token finora). Un turno cosi' lungo puo' essere "
                         "costoso o indicare un loop."
                     ))
+                    _sys_notify(
+                        "Astral - Serve una conferma",
+                        f"Superati {_tool_round_soft} round di tool: proseguo?",
+                        kind="soft_ask",
+                    )
                     try:
                         _ans = ui_confirm("Proseguo con altri round di tool?")
                     except Exception:
@@ -1349,6 +1393,11 @@ def main():
                     if fn_name == "run_powershell_cmd":
                         cmd = fn_args.get("command", "")
                         if any(x in cmd.lower() for x in sys_dirs):
+                            _sys_notify(
+                                "Astral - Conferma richiesta",
+                                f"Comando su percorso di sistema: {cmd[:120]}",
+                                kind="confirm_sys_cmd",
+                            )
                             confirm = ui_confirm(f"Confermi l'esecuzione di '{cmd}' su sistema protetto?")
                             if confirm.lower() != 's':
                                 result = {"error": "Annullato dall'utente."}
@@ -1359,6 +1408,11 @@ def main():
                     elif fn_name == "move_to_trash":
                         path = fn_args.get("path", "")
                         if any(x in path.lower() for x in sys_dirs):
+                            _sys_notify(
+                                "Astral - Conferma richiesta",
+                                f"Eliminazione protetta di: {path[:120]}",
+                                kind="confirm_sys_trash",
+                            )
                             confirm = ui_confirm(f"Confermi eliminazione protetta di '{path}'?")
                             if confirm.lower() != 's':
                                 result = {"error": "Annullato dall'utente."}
@@ -1497,6 +1551,24 @@ def main():
             log_error("main_loop", e)
             _consec_errors += 1
             console.print(ui_error(f"[!] Errore: {e}"))
+            # Notifica di sistema: l'utente puo' essere altrove. Per i timeout
+            # del provider il testo generico non aiuta, quindi lo si qualifica.
+            try:
+                _code = getattr(e, "code", "")
+            except Exception:
+                _code = ""
+            if _code == "TIMEOUT":
+                _sys_notify(
+                    "Astral - Timeout del provider",
+                    f"Nessuna risposta dal modello entro il tempo massimo. {e}",
+                    kind="err_timeout",
+                )
+            else:
+                _sys_notify(
+                    "Astral - Errore",
+                    f"{_code or type(e).__name__}: {e}",
+                    kind="err_%s" % (_code or "generic"),
+                )
             if _consec_errors >= _MAX_CONSEC_ERRORS:
                 # Circuit breaker: errore sistemico ripetuto. Interrompo invece di
                 # riprovare all'infinito (era la causa di loop a CPU piena nel log).
@@ -1504,6 +1576,11 @@ def main():
                     f"[!] {_consec_errors} errori consecutivi: interrompo la sessione "
                     "per evitare un loop. Controlla error_log.txt e riavvia."
                 ))
+                _sys_notify(
+                    "Astral - Sessione interrotta",
+                    f"{_consec_errors} errori consecutivi: sessione fermata per evitare un loop.",
+                    kind="circuit_breaker",
+                )
                 break
             started = launch_self_repair()
             if started:
@@ -1625,6 +1702,11 @@ def _start_loop_watchdog():
                 console.print(
                     "[bold orange_red1][!] WATCHDOG: possibile spin-loop (CPU >80% per 30s). "
                     "Se non stai eseguendo un calcolo, premi Ctrl+C o /exit.[/]"
+                )
+                _sys_notify(
+                    "Astral - WATCHDOG",
+                    "Possibile spin-loop: CPU >80% per 30s.",
+                    kind="watchdog",
                 )
                 try:
                     log_error("watchdog_spin_loop", RuntimeError(f"CPU {pct:.0f}% per {spin_streak * 5}s"))
