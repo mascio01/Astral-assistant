@@ -18,6 +18,7 @@
   - [Self-Repair & Self-Awareness](#self-repair--self-awareness)
   - [Verdict (Council of Judges)](#verdict-council-of-judges)
   - [Subagents](#subagents)
+  - [Task Tracking (Git-native)](#task-tracking-git-native)
   - [UI & Voice](#ui--voice)
   - [Utilities & One-off Scripts](#utilities--one-off-scripts)
 - [Runtime Data Files](#runtime-data-files)
@@ -35,6 +36,7 @@
 5. **Self-improvement** — can refactor and patch its own code, run syntax/dry-run tests on itself, and regenerate its own code map after every change.
 6. **Quality control** — a "verdict" pipeline where a council of judge models reviews answers/code before it is accepted.
 7. **Voice** — local speech-to-text via whisper.cpp (no cloud APIs) and console voice-state feedback.
+8. **Git-native task tracking** — every commit must carry a task ID; a local registry reconciles task state from git history and, crucially, verifies test outcomes instead of trusting declarations.
 
 ---
 
@@ -71,9 +73,9 @@ Supporting subsystems: `repair_loop.py` (self-repair), `verdict/` (council of ju
 
 | File | Role |
 |---|---|
-| **`astral.py`** (~1300 lines) | Entry point and main loop. Handles the conversation cycle: builds the system prompt (identity + state + selfmap context), routes the request, calls the LLM, executes tool calls, runs follow-ups after tools, manages voice prompts, verdict requests, meta-maintenance, and session lifecycle. |
+| **`astral.py`** (~1670 lines) | Entry point and main loop. Handles the conversation cycle: builds the system prompt (identity + state + selfmap context), routes the request, calls the LLM, executes tool calls, runs follow-ups after tools, manages voice prompts, verdict requests, meta-maintenance, and session lifecycle. |
 | **`llm_core.py`** | LLM abstraction layer: talks to OpenRouter, manages streaming, retries, loop detection integration, repair hooks, and model fallbacks. |
-| **`routing_engine.py`** (~880 lines) | The router. Classifies each user turn into categories (`codice`, `conversazione`, `informativo`, ...), selects the best model per category using benchmark data, applies **hysteresis** (avoids flapping between models), tracks the tool phase, and appends every decision to `.routing_audit.jsonl`. Also maintains personal preference scores (`.routing_personal_scores.json`) learned from actual usage. |
+| **`routing_engine.py`** (~1210 lines) | The router. Classifies each user turn into categories (`codice`, `conversazione`, `informativo`, ...), selects the best model per category using benchmark data, applies **hysteresis** (avoids flapping between models), tracks the tool phase, and appends every decision to `.routing_audit.jsonl`. Also maintains personal preference scores (`.routing_personal_scores.json`) learned from actual usage. |
 | **`astral_trim.py`** | Context-window trimming: intelligently compresses/trims conversation history to fit model context limits while preserving system prompt, recent turns and pinned content. Ships with fixtures in `test_trim_fixtures.py`. |
 | **`benchmark_data.py`** | Static benchmark data (model quality per category) used by the router to rank models. |
 | **`price_map.py`** | LLM pricing table (USD per 1M tokens) powering the `/usage` cost report. |
@@ -126,6 +128,23 @@ Supporting subsystems: `repair_loop.py` (self-repair), `verdict/` (council of ju
 | **`subagents/watchdog.py`** | Watches detached subagent processes (locks, timeouts, `.watchdog.lock`). |
 
 Subagents are budgeted, read-only helpers used for independent analysis — they never replace the main tools.
+
+### Task Tracking (Git-native)
+
+Git is the single source of truth for *what has been integrated*. The local registry stores only what git cannot derive: title, functional status, **verified** test outcome and timestamps.
+
+| File | Role |
+|---|---|
+| **`task_tracker.py`** | Task registry on SQLite (the `tasks` table inside `memory_meta.db`). `create_task()` allocates the next free ID **automatically**, scanning both the database and the full git history so that IDs appearing only in commit messages are never reused; it then creates the `task/<id>-<slug>` branch. `mark_test_passed()` runs the real `test_*.py` suite and records a hash of it, so "tests passed" is a verified fact rather than a claim, and `mark_integrated()` warns if the suite changed since. `sync_from_git()` reconciles state from branches and commits. |
+| **`task_hook.py`** | Called by the hooks in `.githooks/`. `validate_commit_msg()` enforces the commit message convention; the `post-merge` path only logs (no DB writes). Bypasses via `--no-verify` are recorded in `.git/task_bypass.log`. |
+
+Commit message convention enforced by the hook:
+
+```
+<tipo>(#<id>): descrizione      # e.g. feat(#42): aggiunge tracker
+```
+
+In the console the workflow runs through slash commands: `/task-new [<id>] <titolo>` (the ID is auto-allocated when omitted), `/task-test <id>`, `/task-done <id>`, `/task-sync`.
 
 ### UI & Voice
 
@@ -262,13 +281,15 @@ pyinstaller Astral.spec
 
 The executable will be created in the `dist/` folder.
 
-### Optional: enable the git hooks
+### Optional but recommended: enable the git hooks
 
-The repository ships with hooks in `.githooks/` (commit-msg, post-merge). To use them:
+The repository ships with hooks in `.githooks/`: `commit-msg` rejects commit messages that don't carry a task ID, while `post-merge` only logs the merge (no DB writes). Enable them once per clone:
 
 ```powershell
 git config core.hooksPath .githooks
 ```
+
+From then on every commit must follow `<tipo>(#<id>): descrizione`, e.g. `feat(#42): aggiunge tracker`. IDs come from the local task registry (see [Task Tracking](#task-tracking-git-native)); Astral allocates them for you with `/task-new <titolo>`. Reach for `git commit --no-verify` only as a deliberate escape hatch — the bypass is logged.
 
 ### Troubleshooting
 
