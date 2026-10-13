@@ -183,8 +183,42 @@ def _run_tests():
     return True, [f"{len(files)} file test ok"]
 
 
+def next_task_id():
+    """Alloca il prossimo ID task progressivo e univoco.
+
+    Considera il massimo tra:
+      - gli ID presenti nel registro SQLite;
+      - gli ID citati nei messaggi di commit git (feat(#N): ...).
+    Cosi' un ID gia' usato in un commit ma mai registrato nel DB
+    (es. #6 riusato 18 volte) non viene piu' riassegnato.
+    """
+    init_tasks()
+    max_id = 0
+    with _LOCK:
+        c = _conn()
+        try:
+            row = c.execute("SELECT MAX(id) FROM tasks").fetchone()
+            if row and row[0]:
+                max_id = int(row[0])
+        finally:
+            c.close()
+    ok, out = _git("log", "--pretty=format:%s")
+    if ok:
+        for line in out.splitlines():
+            m = _COMMIT_MSG_RE.search(line)
+            if m:
+                max_id = max(max_id, int(m.group(1)))
+    return max_id + 1
+
+
 def create_task(task_id, title):
-    """Crea la task e il branch task/<id>-slug."""
+    """Crea la task e il branch task/<id>-slug.
+
+    Se task_id e' None, alloca automaticamente il prossimo ID libero
+    (vedi next_task_id()).
+    """
+    if task_id is None:
+        task_id = next_task_id()
     task_id = int(task_id)
     title = (title or "").strip()
     if not title:

@@ -1515,7 +1515,7 @@ def _handle_task_command(user_input):
 
     Sottocomandi:
       /task                 elenco task
-      /task-new <id> <titolo>   crea task + branch
+      /task-new [<id>] <titolo> crea task + branch (ID auto se omesso)
       /task-test <id>       esegue la suite e marca test_passed (verificato)
       /task-done <id>       marca integrata (verifica hash suite)
       /task-sync            riconcilia registro <-> git
@@ -1539,10 +1539,16 @@ def _handle_task_command(user_input):
                            r['ts_integrated'] or "-"] for r in rows])
             console.print(t)
         elif sub == '/task-new':
-            if len(parts) < 3 or not parts[1].isdigit():
-                console.print(ui_error("[!] Uso: /task-new <id> <titolo>"))
+            # /task-new <titolo>          -> ID allocato automaticamente
+            # /task-new <id> <titolo>     -> ID esplicito
+            if len(parts) < 2:
+                console.print(ui_error("[!] Uso: /task-new [<id>] <titolo>"))
                 return
-            res = tt.create_task(int(parts[1]), parts[2])
+            if parts[1].isdigit() and len(parts) >= 3:
+                task_id, title = int(parts[1]), parts[2]
+            else:
+                task_id, title = None, " ".join(parts[1:])
+            res = tt.create_task(task_id, title)
             if res.get('error'):
                 console.print(ui_error(f"[!] {res['error']}"))
             else:
