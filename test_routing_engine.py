@@ -293,7 +293,7 @@ def test_pool_include_il_modello_di_ragionamento():
     ai due deepseek, che sono la policy di costo."""
     assert R.ROUTING_POOL == ["deepseek/deepseek-v4-flash-0731",
                               "deepseek/deepseek-v4.1-flash",
-                              "openai/gpt-6-luna"]
+                              "qwen/qwen3.8-flash"]
     # Nessun modello "caro" e' entrato come default di conversazione.
     assert "openai/gpt-5.6-luna" not in R.ROUTING_POOL
 
@@ -435,7 +435,15 @@ def test_record_personal_outcome_cap_sul_delta():
         _, _, _, _, _, gen, _ = R._score(
             dict(R.DEFAULT_BENCHMARK), "openai/gpt-5.6-luna", "codice",
             amb.personal, {}, pool=POOL, active_categories=[("codice", 1.0)])
-        assert gen == R.PERSONAL_GENERAL_CAP
+        # Il cap generale resta il tetto in lettura, ma il delta e' ora pesato
+        # per le evidenze (shrinkage): con 40 osservazioni il peso e' 40/43,
+        # quindi il valore applicato e' strettamente sotto il cap.
+        entry = amb.personal["openai/gpt-5.6-luna"]["delta_generale"]
+        peso = entry["evidenze"] / (entry["evidenze"] + R.PERSONAL_SHRINK_K)
+        assert gen <= R.PERSONAL_GENERAL_CAP + 1e-9
+        assert gen > 0
+        # gen e' arrotondato a 4 decimali nel percorso di score: tolleranza 2e-4.
+        assert abs(gen - R.PERSONAL_GENERAL_CAP * peso) < 2e-4
 
 
 def test_record_personal_outcome_migra_il_formato_piatto():

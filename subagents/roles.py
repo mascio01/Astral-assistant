@@ -85,16 +85,30 @@ def run_role(ruolo: str, contesto: str = "", depth: int = 0) -> dict:
     except Exception:
         modello = r.get("modello_fallback", "deepseek/deepseek-v4-flash-0731")
     try:
+        # [FIX subagent-vuoti] max_tokens=900 veniva interamente consumato dai
+        # reasoning_tokens dei modelli con reasoning nativo (es. deepseek-v4.1-flash):
+        # finish_reason='length' e content='' -> report "(vuoto)". Alzato a 4000
+        # (misurato: reasoning ~2700 + testo ~1000) per lasciare spazio all'output.
         resp = _shared_client_factory().chat.completions.create(
             model=modello,
             temperature=r["temp"],
-            max_tokens=900,
+            max_tokens=4000,
             messages=[
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": ctx[:12000]},
             ],
         )
-        report = resp.choices[0].message.content or "(vuoto)"
+        choice = resp.choices[0]
+        report = choice.message.content or ""
+        if not report.strip():
+            # Rete di sicurezza: se il budget e' finito tutto in reasoning,
+            # recupera il ragionamento invece di salvare un file vuoto.
+            extra = getattr(choice.message, "model_extra", None) or {}
+            report = (extra.get("reasoning") or "").strip()
+            if report:
+                report = "[solo reasoning, output troncato]\n\n" + report
+        if not report.strip():
+            report = f"(vuoto: finish_reason={choice.finish_reason})"
         ok = True
     except Exception as e:
         log_error(f"subagents/{ruolo}", e)

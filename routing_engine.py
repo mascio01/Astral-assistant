@@ -27,6 +27,10 @@ from price_map import cost_usd, get_price
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIT_FILE = os.path.join(BASE_DIR, ".routing_audit.jsonl")
+# Rotazione audit: oltre MAX_AUDIT_BYTES si eliminano le righe piu' vecchie
+# finche' il file non scende sotto AUDIT_KEEP_BYTES (margine per i nuovi record).
+MAX_AUDIT_BYTES = 7 * 1024 * 1024
+AUDIT_KEEP_BYTES = 6 * 1024 * 1024
 
 # Pesi base: qualita' (60% categoria + 40% affidabilita) 0.7 + costo REALE
 # OpenRouter 0.3. Il peso del costo e' poi modulato dinamicamente dal tier di
@@ -70,6 +74,10 @@ PERSONAL_DELTA_CAP = 0.35
 # Profilo personale a due livelli: generale + categorie Astral.
 PERSONAL_GENERAL_CAP = 0.20
 PERSONAL_CATEGORY_CAP = 0.22
+# Shrinkage: il delta appreso vale in proporzione alle evidenze accumulate
+# (n / (n + K)). Con K=3 un modello nuovo non eredita un vantaggio che non
+# ha, e uno con storico consolidato non perde il suo segnale.
+PERSONAL_SHRINK_K = 3.0
 PERSONAL_DELTA_STEP = 0.08
 PERSONAL_DELTA_MIN_STEP = 0.015
 # Mean-reversion del delta personale: senza decay, ogni successo (la norma)
@@ -80,24 +88,27 @@ _PERSONAL_LOCK = threading.RLock()
 # Pool operativo (specchio di llm_core.DYNAMIC_MODELS_POOL).
 # _pool_dinamico() arricchisce con benchmark_data.pool_suggerito() SOLO le scelte
 # per gruppo, ma il candidato e' sempre selezionato dentro questo stesso set.
-# POLICY DI COSTO: 2 modelli, non 3. Il 0731 e' il default (input 0.04/M);
-# il 4.1-flash entra solo su codice complesso (input 0.10/M, 2.5x).
-# gpt-5.6-luna rimosso: input 0.20/M (5x il 0731) senza vantaggio sulle
-# conversazioni, che sono il 96% dei token in input.
+# POLICY DI COSTO: 2 modelli per codice/conversazione, non 3. Il 0731 e' il
+# default (input 0.04/M); il 4.1-flash entra solo su codice complesso
+# (input 0.10/M, 2.5x). Il terzo modello serve SOLO il ragionamento.
+# gpt-6-luna rimosso: reasoning 8.18 e affidabilita' 5.59, cioe' il piu' basso
+# del pool su entrambi gli assi, a un costo non inferiore agli altri.
+# qwen3.8-flash lo sostituisce: reasoning 8.74 (il piu' alto del pool) e
+# affidabilita' 7.71, a 0.15/0.47 $/M.
 ROUTING_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "openai/gpt-6-luna",
+    "qwen/qwen3.8-flash",
 ]
 
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico)
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico).
 # La chiave "reasoning" e' quella usata dalla categoria di routing "ragionamento"
-# (score LiveBench reasoning reale); i modelli ereditati dalla famiglia luna
-# condividono gli stessi punteggi LiveBench di gpt-5.6-luna.
+# (score LiveBench reasoning reale). I valori qui sotto sono il fallback offline:
+# quando la cache LiveBench e' idratata vincono i punteggi reali di benchmark_data.
 DEFAULT_BENCHMARK = {
     "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 8.0, "reasoning": 8.67, "affidabilita": 7.0, "costo": 8.5},
-    "openai/gpt-6-luna": {"conversazione": 7.26, "codice": 8.29, "reasoning": 8.56, "affidabilita": 6.01, "costo": 7.9},
+    "qwen/qwen3.8-flash": {"conversazione": 7.46, "codice": 7.26, "reasoning": 8.74, "affidabilita": 7.71, "costo": 7.78},
     "deepseek/deepseek-v4-flash-vision-exp": {"conversazione": 8.04, "codice": 6.82, "reasoning": 8.54, "affidabilita": 7.1, "costo": 6.5},
     "deepseek/deepseek-v4-flash-0731": {"conversazione": 7.92, "codice": 7.5, "reasoning": 8.66, "affidabilita": 6.55, "costo": 9.0},
     "openai/gpt-5.6-sol": {"conversazione": 9.5, "codice": 9.0, "reasoning": 9.16, "affidabilita": 9.5, "costo": 5.0},
@@ -440,18 +451,18 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     is_0731 = model == "deepseek/deepseek-v4-flash-0731"
     is_ds41 = model == "deepseek/deepseek-v4.1-flash"
     code_complex = bool(features.get("code_complex"))
-    # Categoria ragionamento: il bonus spegne il premio di policy al 0731 e
-    # lascia decidere il benchmark reasoning. Il 0731 (8.66) e il 4.1-flash
-    # (8.67) sono pari entro TIE_EPS: qui vince chi costa meno per la
-    # lunghezza prevista, non un premio fisso. Il luna (8.56) resta dietro.
+    # Categoria ragionamento: decide SOLO il benchmark reasoning. I modulatori
+    # di policy sotto sono asimmetrici (premiano il 0731 di +0.10) e
+    # falserebbero il confronto: qui il 0731 (8.66), il 4.1-flash (8.67) e lo
+    # specialista qwen3.8-flash (8.74) si misurano sui punteggi reali, e a pari
+    # merito vince chi costa meno per la lunghezza prevista.
     is_reasoning = categoria == "ragionamento"
     if is_reasoning:
-        # Neutralizza il blocco di policy: senza questo il 0731 partirebbe con
-        # +0.45 e il confronto sul reasoning reale non avverrebbe mai.
-        if is_0731:
-            bonus -= _POLICY_DEFAULT_BONUS
-        elif is_ds41:
-            bonus -= _POLICY_41_ON_DEFAULT
+        # Resta attivo il solo bonus di continuita': e' neutro rispetto al
+        # modello e serve a non cambiare IA a meta' discorso.
+        if features["overlap"] >= 0.15 and model == _state.get("previous"):
+            bonus += 0.22
+        return bonus
     # Blocco di policy: decide QUALE dei due modelli e' il default. E' dominante
     # rispetto ai micro-modulatori sotto, che restano come tie-breaker.
     if is_0731:
@@ -467,12 +478,9 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
         # subito: non lasciamo che l'isteresi mantenga il modello conversazionale.
         bonus += 0.10 if is_0731 else 0.30
     if features["reasoning"]:
-        if is_reasoning:
-            # Nella categoria ragionamento il segnale non deve falsare il
-            # confronto: i tre modelli sono tutti "reasoning-capable".
-            bonus += 0.0
-        else:
-            bonus += 0.05 if is_0731 else (0.10 if is_ds41 else 0.08)
+        # Fuori dal ragionamento il segnale premia chi e' piu' forte sul
+        # reasoning reale; dentro, il confronto e' gia' deciso dal benchmark.
+        bonus += 0.05 if is_0731 else (0.10 if is_ds41 else 0.08)
     if features["action"]:
         bonus += 0.04 if is_0731 else 0.12
     if features["changed"]:
@@ -773,6 +781,24 @@ def _telemetry_costs(bench: dict) -> dict:
     return _TELEMETRY_COST_CACHE
 
 
+def _shrink_weight(entry) -> float:
+    """Peso [0,1] del delta appreso in base al numero di evidenze.
+
+    Senza questo, un modello con storico riceve il delta pieno e uno appena
+    aggiunto parte da zero: il nuovo non puo' mai vincere, quindi non
+    accumulera' mai evidenze. E' un blocco strutturale, non di merito.
+    """
+    if not isinstance(entry, dict):
+        return 0.0
+    # Entry senza contatore: formato legacy o scritture manul. Il delta e' una
+    # scelta deliberata dell'utente, quindi vale per intero (evita di ignorarlo
+    # introducendo una perdita silenziosa di dati).
+    if "evidenze" not in entry:
+        return 1.0
+    n = max(0.0, float(entry.get("evidenze", 0) or 0))
+    return n / (n + PERSONAL_SHRINK_K)
+
+
 def _score(bench: dict, modello: str, categoria: str, personal: dict,
            telemetry_costs: dict, pool=None, active_categories=None) -> tuple:
     """Score benchmark + delta personale appreso, penalizzato dal costo/token."""
@@ -783,6 +809,7 @@ def _score(bench: dict, modello: str, categoria: str, personal: dict,
     general_delta = (float(general_entry.get("delta", 0.0) or 0.0)
                      if isinstance(general_entry, dict) else 0.0)
     general_delta = max(-PERSONAL_GENERAL_CAP, min(PERSONAL_GENERAL_CAP, general_delta))
+    general_delta *= _shrink_weight(general_entry)
     categories = p.get("delta_categorie")
     if not isinstance(categories, dict):
         categories = {k: v for k, v in p.items()
@@ -792,6 +819,7 @@ def _score(bench: dict, modello: str, categoria: str, personal: dict,
         entry = categories.get(name)
         delta = float(entry.get("delta", 0.0) or 0.0) if isinstance(entry, dict) else 0.0
         delta = max(-PERSONAL_CATEGORY_CAP, min(PERSONAL_CATEGORY_CAP, delta))
+        delta *= _shrink_weight(entry)
         category_contrib[name] = round(delta * float(category_weight), 4)
     correzione_personale = max(-PERSONAL_DELTA_CAP, min(
         PERSONAL_DELTA_CAP, general_delta + sum(category_contrib.values())))
@@ -837,10 +865,37 @@ def _score(bench: dict, modello: str, categoria: str, personal: dict,
 
 
 
+def _rotate_audit():
+    """Se l'audit supera MAX_AUDIT_BYTES, elimina le righe piu' vecchie
+    (dall'inizio) finche' il file non scende sotto AUDIT_KEEP_BYTES.
+    Scrittura atomica via file temporaneo + replace."""
+    try:
+        if os.path.getsize(AUDIT_FILE) <= MAX_AUDIT_BYTES:
+            return
+        with open(AUDIT_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        # Accumula dal fondo (righe piu' nuove) finche' si resta sotto la soglia.
+        kept = []
+        size = 0
+        for line in reversed(lines):
+            size += len(line.encode("utf-8"))
+            if size > AUDIT_KEEP_BYTES:
+                break
+            kept.append(line)
+        kept.reverse()
+        tmp = AUDIT_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+        os.replace(tmp, AUDIT_FILE)
+    except Exception:
+        pass
+
+
 def _audit(record: dict):
     try:
         with open(AUDIT_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        _rotate_audit()
     except Exception:
         pass
 
@@ -1006,7 +1061,18 @@ def decide_model(user_input: str, context=None) -> dict:
             "delta_categorie": delta_categorie,
             "costo_per_1000_token": costo_k,
         }
-    scores = {m: round(base_scores[m] + _profile_bonus(m, features, categoria), 3) for m in pool}
+    # Centratura del profilo appreso: il delta e' un segnale RELATIVO, non un
+    # bonus d'uso. Senza centratura TUTTI i modelli con storico ricevono lo
+    # stesso premio e un modello nuovo (delta 0) resta indietro a prescindere
+    # dal merito, senza poter mai accumulare evidenze: blocco strutturale.
+    # Sottrarre la media del pool non cambia il livello medio di qualita',
+    # rende solo confrontabili i delta tra modelli con storici diversi.
+    correzioni = [d["correzione_personale"] for d in score_details.values()]
+    offset_personale = sum(correzioni) / len(correzioni) if correzioni else 0.0
+    scores = {m: round(base_scores[m]
+                       - PESI["qualita"] * (score_details[m]["correzione_personale"]
+                                            - offset_personale)
+                       + _profile_bonus(m, features, categoria), 3) for m in pool}
     # Costo previsto per la lunghezza stimata: usato SOLO a pari merito.
     costo_previsto = {}
     for m in pool:
@@ -1061,6 +1127,7 @@ def decide_model(user_input: str, context=None) -> dict:
         "pesi": dict(PESI),
         "scores": scores, "score_details": score_details,
         "telemetry_cost_windows": telemetry_costs,
+        "offset_personale": round(offset_personale, 4),
         "token_previsti": expected, "costo_previsto": costo_previsto,
         "scelto": scelta, "best": best,
         "margine": margine, "motivo": motivo,

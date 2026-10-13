@@ -67,14 +67,26 @@ except Exception as _ui_e:
 from loop_detector import LoopDetector
 
 
-# --- [ANTI-LOOP] Tetto di sicurezza sul ciclo agentico dei tool -------------
+# --- [ANTI-LOOP] Modello soft-limit + budget token sul ciclo agentico ----------
 # Il ciclo `while msg.tool_calls` in main() prosegue finche' il modello emette
 # tool_calls. Le guardie di tools_gateway intercettano solo la ripetizione
 # esatta/near-duplicate consecutiva: una catena lunga di chiamate diverse puo'
-# comunque girare a lungo bruciando token. Qui un tetto configurabile
-# (config.db chiave 'max_tool_rounds', default 30) interrompe il ciclo con
-# hard stop + report diagnostico su file.
-_TOOL_ROUND_DEFAULT = 30
+# comunque girare a lungo bruciando token.
+#
+# Analisi sullo storico (logs/executions.jsonl, ~3.8k chiamate) mostra una
+# distribuzione bimodale: ~86% dei turni usa <=2 round, ma il vero lavoro
+# agentico multi-step arriva a decine di round (p90=48). Quindi:
+#   - WARN1 (config 'tool_round_warn1', default 30): avviso rosso non bloccante.
+#   - WARN2 (config 'tool_round_warn2', default 100): secondo avviso non bloccante.
+#   - SOFT  (config 'tool_round_soft_limit', default 130): avviso + conferma utente.
+#   - HARD  (config 'tool_round_hard_limit', default 150): stop assoluto.
+#   - TOKEN (config 'tool_token_budget', default 2000000; 0=illimitato):
+#     stop quando i token cumulati nel turno superano il budget.
+_TOOL_ROUND_WARN1_DEFAULT = 30
+_TOOL_ROUND_WARN2_DEFAULT = 100
+_TOOL_ROUND_DEFAULT = 130
+_TOOL_ROUND_HARD_DEFAULT = 150
+_TOOL_TOKEN_BUDGET_DEFAULT = 2_000_000
 
 # [ANTI-LOOP] Circuit breaker sul loop principale: se piu' turni consecutivi
 # sollevano eccezioni (errore sistemico, es. NameError prima del prompt di
@@ -83,21 +95,61 @@ _TOOL_ROUND_DEFAULT = 30
 _MAX_CONSEC_ERRORS = 5
 
 
-def _get_tool_round_cap():
-    """Tetto di round tool per turno (config 'max_tool_rounds', default 30)."""
+def _get_tool_round_limit(key, default, aliases=()):
+    """Legge un limite di round tool dalla config (int > 0), altrimenti 'default'.
+    'aliases' permette chiavi legacy (es. 'max_tool_rounds')."""
+    for k in (key,) + tuple(aliases):
+        try:
+            raw = get_config(k, None)
+            if raw is not None:
+                val = int(str(raw).strip())
+                if val > 0:
+                    return val
+        except Exception:
+            pass
+    return default
+
+
+def _get_tool_token_budget():
+    """Budget token cumulati per turno (config 'tool_token_budget', default 2M; 0=illimitato)."""
     try:
-        raw = get_config("max_tool_rounds", None)
+        raw = get_config("tool_token_budget", None)
         if raw is not None:
             val = int(str(raw).strip())
-            if val > 0:
+            if val >= 0:
                 return val
     except Exception:
         pass
-    return _TOOL_ROUND_DEFAULT
+    return _TOOL_TOKEN_BUDGET_DEFAULT
 
 
-def _log_loop_diagnostic(user_input, used_model, rounds, cap):
-    """[ANTI-LOOP] Report diagnostico quando scatta l'hard stop sul ciclo tool."""
+def _get_tool_round_cap():
+    """[compat] Alias storico: ritorna il soft-limit."""
+    return _get_tool_round_soft()
+
+
+def _usage_total_tokens(usage):
+    """Estrae i token totali da un oggetto usage (o None). Best-effort: mai solleva."""
+    if usage is None:
+        return 0
+    try:
+        total = getattr(usage, "total_tokens", None)
+        if total is None and isinstance(usage, dict):
+            total = usage.get("total_tokens")
+        if total is None:
+            pt = getattr(usage, "prompt_tokens", None)
+            ct = getattr(usage, "completion_tokens", None)
+            if isinstance(usage, dict):
+                pt = pt if pt is not None else usage.get("prompt_tokens")
+                ct = ct if ct is not None else usage.get("completion_tokens")
+            total = (pt or 0) + (ct or 0)
+        return int(total or 0)
+    except Exception:
+        return 0
+
+
+def _log_loop_diagnostic(user_input, used_model, rounds, cap, reason="hard_stop", tokens=0):
+    """[ANTI-LOOP] Report diagnostico quando scatta soft/hard stop sul ciclo tool."""
     try:
         import datetime as _dt
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -106,8 +158,10 @@ def _log_loop_diagnostic(user_input, used_model, rounds, cap):
         entry = {
             "ts": _dt.datetime.now().isoformat(timespec="seconds"),
             "event": "tool_round_cap_hit",
+            "reason": reason,
             "rounds": rounds,
             "cap": cap,
+            "tokens": tokens,
             "model": used_model,
             "input": (user_input or "")[:500],
         }
@@ -620,8 +674,11 @@ def main():
 
     _mt_run = False
     _consec_errors = 0
+    _busy = False          # True durante l'elaborazione di un turno (per distinguere Ctrl+C)
+    _turn_start_idx = 0    # indice dei messaggi all'inizio del turno corrente
     while True:
         try:
+            _busy = False  # al prompt Ctrl+C = esci; viene alzato solo durante l'elaborazione
             if not _mt_run:
                 _mt_run = True
                 run_meta_maintenance()
@@ -640,6 +697,8 @@ def main():
             user_input = console.input(f"\n{ui_prompt_label(prompt_label, _prompt_color)} ").strip()
             if not user_input:
                 continue
+            _busy = True
+            _turn_start_idx = len(messages)  # punto di rollback se l'utente annulla
 
             # Feedback immediato: non lasciare la console apparentemente bloccata
             # mentre selfmap/routing preparano la richiesta.
@@ -1180,21 +1239,78 @@ def main():
             tool_followup_error = None
             tool_cancelled = False
             tool_results_for_learning = []
-            # [ANTI-LOOP] Tetto di round tool: hard stop oltre il limite configurabile.
-            _tool_round_cap = _get_tool_round_cap()
+            # [ANTI-LOOP] Limiti su round tool: soft (conferma utente) + hard + budget token.
+            _tool_round_warn1 = _get_tool_round_limit("tool_round_warn1", _TOOL_ROUND_WARN1_DEFAULT)
+            _tool_round_warn2 = _get_tool_round_limit("tool_round_warn2", _TOOL_ROUND_WARN2_DEFAULT)
+            _tool_round_soft = _get_tool_round_limit("tool_round_soft_limit", _TOOL_ROUND_DEFAULT,
+                                                     aliases=("max_tool_rounds",))
+            _tool_round_hard = _get_tool_round_limit("tool_round_hard_limit", _TOOL_ROUND_HARD_DEFAULT)
+            _tool_token_budget = _get_tool_token_budget()
             _tool_round = 0
             _tool_round_hit = False
+            _tool_stop_reason = None
+            _tool_tokens = _usage_total_tokens(usage)  # token del primo turno
+            _soft_asked = False
+            _warned_30 = False
+            _warned_100 = False
             while msg.tool_calls:
                 _tool_round += 1
-                if _tool_round > _tool_round_cap:
+                # Budget token cumulati nel turno (0 = illimitato).
+                if _tool_token_budget and _tool_tokens > _tool_token_budget:
                     _tool_round_hit = True
-                    _log_loop_diagnostic(user_input, used_model, _tool_round - 1, _tool_round_cap)
+                    _tool_stop_reason = "token_budget"
+                    _log_loop_diagnostic(user_input, used_model, _tool_round - 1,
+                                         _tool_token_budget, reason="token_budget", tokens=_tool_tokens)
                     console.print(ui_error(
-                        f"[!] Limite di sicurezza raggiunto ({_tool_round_cap} round di tool "
-                        "in un singolo turno): interrompo il ciclo per evitare un loop. "
+                        f"[!] Budget token del turno superato ({_tool_tokens:,} > "
+                        f"{_tool_token_budget:,}): interrompo il ciclo per contenere i costi. "
                         "Riformula la richiesta o suddividila in passi piu' piccoli."
                     ))
                     break
+                # Limite assoluto di sicurezza: stop senza chiedere.
+                if _tool_round > _tool_round_hard:
+                    _tool_round_hit = True
+                    _tool_stop_reason = "hard_stop"
+                    _log_loop_diagnostic(user_input, used_model, _tool_round - 1,
+                                         _tool_round_hard, reason="hard_stop", tokens=_tool_tokens)
+                    console.print(ui_error(
+                        f"[!] Limite assoluto raggiunto ({_tool_round_hard} round di tool in un "
+                        "singolo turno): interrompo il ciclo per evitare un loop. "
+                        "Riformula la richiesta o suddividila in passi piu' piccoli."
+                    ))
+                    break
+                # Avvisi non bloccanti: il ragionamento continua.
+                if _tool_round >= _tool_round_warn1 and not _warned_30:
+                    _warned_30 = True
+                    console.print(ui_error(
+                        f"[!] Attenzione: {_tool_round} round di tool in questo turno "
+                        f"({_tool_tokens:,} token finora). Il turno sta diventando lungo."
+                    ))
+                if _tool_round >= _tool_round_warn2 and not _warned_100:
+                    _warned_100 = True
+                    console.print(ui_error(
+                        f"[!] Attenzione: {_tool_round} round di tool in questo turno "
+                        f"({_tool_tokens:,} token finora). Ci stiamo avvicinando al limite "
+                        "di sicurezza."
+                    ))
+                # Soft-limit: avvisa e chiedi conferma una sola volta.
+                if _tool_round > _tool_round_soft and not _soft_asked:
+                    _soft_asked = True
+                    console.print(ui_error(
+                        f"[!] Superati {_tool_round_soft} round di tool in questo turno "
+                        f"({_tool_tokens:,} token finora). Un turno cosi' lungo puo' essere "
+                        "costoso o indicare un loop."
+                    ))
+                    try:
+                        _ans = ui_confirm("Proseguo con altri round di tool?")
+                    except Exception:
+                        _ans = ""
+                    if (_ans or "").strip().lower() != "s":
+                        _tool_round_hit = True
+                        _tool_stop_reason = "soft_declined"
+                        _log_loop_diagnostic(user_input, used_model, _tool_round - 1,
+                                             _tool_round_soft, reason="soft_declined", tokens=_tool_tokens)
+                        break
                 if msg.content:
                     console.print(f"[dim]{msg.content.strip()}[/dim]")
                 # Strutturiamo il messaggio assistant con i tool calls
@@ -1289,6 +1405,7 @@ def main():
                         tools_schema=gateway.select_schemas(user_input, context=messages),
                         primary_model=active_model)
                     record_usage(followup_model, getattr(response, "usage", None))
+                    _tool_tokens += _usage_total_tokens(getattr(response, "usage", None))
                     print_telemetry(response, followup_model)
                     msg = response.choices[0].message
                 except Exception as e:
@@ -1310,11 +1427,23 @@ def main():
             if tool_cancelled:
                 final_text = "Operazione annullata dall'utente."
             elif _tool_round_hit:
-                final_text = (
-                    f"Limite di sicurezza raggiunto ({_tool_round_cap} round di tool in un "
-                    "singolo turno): ho interrotto il ciclo per evitare un loop infinito. "
-                    "Riformula la richiesta o suddividila in passi piu' piccoli."
-                )
+                if _tool_stop_reason == "token_budget":
+                    final_text = (
+                        f"Budget token del turno superato ({_tool_tokens:,} token): ho interrotto "
+                        "il ciclo per contenere i costi. Riformula o suddividi la richiesta."
+                    )
+                elif _tool_stop_reason == "soft_declined":
+                    final_text = (
+                        f"Turno interrotto dopo {_tool_round_soft} round di tool (limite "
+                        "morbido) su tua scelta: riformula la richiesta o suddividila in passi "
+                        "piu' piccoli."
+                    )
+                else:
+                    final_text = (
+                        f"Limite assoluto raggiunto ({_tool_round_hard} round di tool in un "
+                        "singolo turno): ho interrotto il ciclo per evitare un loop infinito. "
+                        "Riformula la richiesta o suddividila in passi piu' piccoli."
+                    )
             else:
                 final_text = (msg.content or "").strip()
             if not final_text:
@@ -1348,8 +1477,18 @@ def main():
             # Salva periodicamente lo storico per non perderlo in caso di chiusura imprevista
             save_persistent_history(messages)
             _consec_errors = 0  # turno completato: azzera il contatore errori
+            _busy = False
 
         except KeyboardInterrupt:
+            if _busy:
+                # Ctrl+C durante l'elaborazione: annulla SOLO il turno corrente,
+                # senza uscire dal processo. Scarta i messaggi orfani del turno.
+                del messages[_turn_start_idx:]
+                save_persistent_history(messages)
+                console.print("\n[dim][*] Turno annullato (Ctrl+C). Richiesta scartata, Astral resta attivo.[/dim]")
+                _busy = False
+                _consec_errors = 0
+                continue
             checkpoint_save(messages)
             save_persistent_history(messages)
             console.print("\n[dim]Uscita in corso... Storico salvato.[/dim]")

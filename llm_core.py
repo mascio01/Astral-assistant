@@ -209,20 +209,24 @@ MODELS = {
     "gpt-5.6-luna": "openai/gpt-5.6-luna",
     "gpt-6-luna": "openai/gpt-6-luna",
     "6-luna": "openai/gpt-6-luna",
+    "qwen": "qwen/qwen3.8-flash",
+    "qwen3.8": "qwen/qwen3.8-flash",
+    "qwen3.8-flash": "qwen/qwen3.8-flash",
     "auto": "auto"
 }
 
 # Full IDs verificati su OpenRouter (ammessi oltre ai valori di MODELS)
 EXTRA_VALID_MODELS = {"deepseek/deepseek-v4-flash-0731", "deepseek/deepseek-v4.1-flash",
-                      "openai/gpt-6-luna"}
+                      "qwen/qwen3.8-flash"}
 
-# Pool a 2 modelli per policy di costo: il 0731 e' il default (input 0.04/M);
-# il 4.1-flash (input 0.10/M) entra solo su codice complesso. gpt-5.6-luna
-# rimosso: input 0.20/M, 5x il 0731, senza vantaggio sulle conversazioni.
+# Pool a 2 modelli per codice/conversazione: il 0731 e' il default (input
+# 0.04/M); il 4.1-flash (input 0.10/M) entra solo su codice complesso. Il terzo
+# modello serve solo il ragionamento. gpt-6-luna rimosso: reasoning 8.18 e
+# affidabilita' 5.59, il piu' basso del pool su entrambi gli assi.
 DYNAMIC_MODELS_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "openai/gpt-6-luna",
+    "qwen/qwen3.8-flash",
 ]
 
 current_model = "auto"
@@ -260,7 +264,7 @@ def _get_client():
     return _client_instance
 
 SYSTEM_INSTRUCTION = (
-    "HOME: La cartella principale del progetto e' C:\\Users\\masci\\Astral; il file madre attualmente in esecuzione e' astral.py (percorso completo: C:\\Users\\masci\\Astral\\astral.py).\n"
+    "HOME: La cartella principale del progetto e' __ASTRAL_HOME__; il file madre attualmente in esecuzione e' astral.py (percorso completo: __ASTRAL_HOME__\\astral.py).\n"
     "ROLE: Assistente IA integrato in Windows 11 con controllo file e PowerShell.\n"
     "SCOPO: Essere un assistente Windows 11 efficiente e migliorare attivamente se stesso e il proprio codice sorgente.\n"
     "DIRECTIVES:\n"
@@ -275,17 +279,21 @@ SYSTEM_INSTRUCTION = (
     "- CODE PATCHING: Per modificare file di codice usa SEMPRE il tool apply_code_patch (blocchi search/replace esatti, atomici). NON usare PowerShell per sovrascrivere o stampare file interi: genera output chilometrici e spreca token.\n"
     "- AUTO-TESTING: Dopo ogni modifica al codice, verifica con test_python_file (mode='compile' per sintassi, mode='run' per dry-run). Durante ragionamenti multi-step, applica modifiche e test in modo SILENZIOSO: riporta all'utente solo l'esito finale.\n"
     "- MODULARIZZAZIONE: Se astral.py supera ~1500 righe, separa la logica dei tools in moduli dedicati (es. tools_patch.py, tools_test.py) importandoli dal file madre.\n"
-    "- SELF-AWARENESS: La mappa completa del codice (file, classi, funzioni, righe, import) e' in C:\\Users\\masci\\Astral\\.selfmap.md, rigenerata automaticamente ad ogni avvio di astral.py. A inizio sessione, prima di modifiche strutturali o su dubbio: leggila PRIMA di agire. Dopo ogni patch a file di codice: rigenerala con 'py selfmap.py'.\n"
+    "- SELF-AWARENESS: La mappa completa del codice (file, classi, funzioni, righe, import) e' in __ASTRAL_HOME__\\.selfmap.md, rigenerata automaticamente ad ogni avvio di astral.py. A inizio sessione, prima di modifiche strutturali o su dubbio: leggila PRIMA di agire. Dopo ogni patch a file di codice: rigenerala con 'py selfmap.py'.\n"
     "- VERDICT PROTOCOL: Quando l'utente dice 'verdetto' o 'verdict' (anche senza '/verdict'): usa il tool run_verdict con {question, profile ('standard' o 'lite'), context opzionale}: avvia il consiglio in background e ritorna subito un job_id. (2) NON attendere in un loop manuale: chiama verdict_wait. Ogni chiamata attende al massimo ~25s e ritorna status 'running' finche' il consiglio non ha finito; il profilo 'lite' puo' richiedere diversi minuti, quindi richiama verdict_wait con lo STESSO job_id finche' status != 'running' (verdict_status per un check rapido, verdict_cancel per annullare). (3) Quando status='done' mostra result all'utente (il .md completo e' salvato in verdicts/). NON lanciare run_verdict se un job e' gia' attivo e NON ricostruire a mano il protocollo PowerShell: i tool incapsulano avvio, attesa e pulizia.\n"
     "- SUBAGENTS: comando `/subagent scout|review [file1,file2,...]` lancia subagent READ-ONLY detached (budget 8 job/h, depth 1, snapshot pre-job, budget via subagents/jobspec.check_budget). scout=ricerca, review=revisione codice. Output in subagents/out/. NON invocare i job inline: vanno in detached."
 )
 
 # --- Fix loop percorsi -------------------------------------------------------
-# Le direttive contengono path assoluti di installazioni diverse dalla corrente
-# (es. C:\Users\<altro utente>\Astral). Il modello tentava di leggere file
-# inesistenti, falliva e ritentava in loop. Qui ogni root di progetto citata
-# nelle direttive viene riallineata a BASE_DIR a runtime, cosi' il problema non
-# si ripresenta ne' cambiando utente ne' spostando la cartella.
+# Portabilita' totale: le direttive non contengono piu' path assoluti scritti a
+# mano (che valevano solo per la macchina di sviluppo e mandavano il modello in
+# loop su file inesistenti). Il segnaposto __ASTRAL_HOME__ viene risolto a
+# runtime con BASE_DIR, quindi le direttive restano corrette su qualsiasi
+# utente, drive, nome cartella o eseguibile congelato (PyInstaller).
+SYSTEM_INSTRUCTION = SYSTEM_INSTRUCTION.replace("__ASTRAL_HOME__", BASE_DIR)
+
+# Rete di sicurezza per testi legacy o generati altrove che citino ancora una
+# root di progetto assoluta: viene riallineata a BASE_DIR.
 _ROOT_RE = re.compile(r"[A-Za-z]:\\Users\\[^\\\"\s;]+\\(?:Astral Assistant|Astral)(?=\\|\"|\s|;|$)")
 if _ROOT_RE.search(SYSTEM_INSTRUCTION):
     SYSTEM_INSTRUCTION = _ROOT_RE.sub(lambda _m: BASE_DIR, SYSTEM_INSTRUCTION)

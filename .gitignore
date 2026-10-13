@@ -88,6 +88,7 @@ config.db
 archive/diagnostics/
 .repair_active.lock
 .verdict_latency.json
+.verdict_job.json
 # Knowledge Map: vista generata da selfmap.py (le fonti restano versionate)
 knowledge_map.json
 knowledge_map.md
