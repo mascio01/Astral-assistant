@@ -234,6 +234,23 @@ def test_create_task_richiede_titolo():
         assert "error" in TT.create_task(21, None)
 
 
+def test_next_task_id_considera_db_e_storia_git():
+    # Regressione: un ID usato in un commit ma mai registrato nel DB
+    # (es. #6 riusato 18 volte) non deve essere riassegnato.
+    with Repo() as repo:
+        repo.commit("feat(#42): id solo nella storia git")
+        assert TT.next_task_id() == 43
+
+
+def test_create_task_alloca_id_automatico():
+    with Repo() as repo:
+        repo.commit("feat(#9): id nella storia")
+        esito = TT.create_task(None, "Auto id")
+        assert esito["ok"] is True
+        assert esito["id"] == 10
+        assert esito["branch"].startswith("task/10-")
+
+
 def test_create_task_crea_branch_e_riga():
     with Repo() as repo:
         esito = TT.create_task(30, "Nuova funzionalita'")
