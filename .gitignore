@@ -125,3 +125,9 @@ AUDIT-5-SECURITY-RELIABILITY.md
 knowledge_catalog.local.json
 RECUPERO_RAGIONAMENTO_*.md
 
+
+# Credenziali Google Calendar (mai versionare)
+.gcal_tokens/
+credentials.json
+# Turni personali Nico (solo locale)
+nico_shifts.json
