@@ -449,19 +449,21 @@ def _build_models() -> dict:
 # Pool CANONICO (specchio di llm_core.DYNAMIC_MODELS_POOL). Il routing NON si
 # allarga mai oltre questi modelli: qualunque selezione per gruppo cade solo qui.
 # 2 modelli per policy di costo: 0731 e' il default (input 0.04/M), 4.1-flash
-# entra solo su codice complesso (input 0.10/M). gpt-5.6-luna rimosso: input
-# 0.20/M, 5x il 0731, senza vantaggio sulle conversazioni.
+# entra solo su codice complesso (input 0.10/M). Il terzo modello serve solo il
+# ragionamento. gpt-6-luna rimosso: reasoning 8.18 e affidabilita' 5.59, il
+# piu' basso del pool su entrambi gli assi. Sostituito da qwen3.8-flash
+# (reasoning 8.74, affidabilita' 7.71, 0.15/0.47 $/M).
 POOL_CANONICO = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "openai/gpt-6-luna",
+    "qwen/qwen3.8-flash",
 ]
 
 # Modelli ammessi SOLO nel gruppo ragionamento. Sono esclusi da codice e
 # conversazione per non alterare la policy di costo (il 0731 resta il default
 # economico dove non serve ragionamento forte).
 POOL_REASONING_ONLY = {
-    "openai/gpt-6-luna",
+    "qwen/qwen3.8-flash",
 }
 
 

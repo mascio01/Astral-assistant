@@ -30,6 +30,7 @@ PRICES = {
     "deepseek/deepseek-v4.1-flash": (0.10, 0.50),
     "deepseek/deepseek-v4-flash-vision-exp": (0.22, 0.66),
     "openai/gpt-6-luna": (0.10, 0.50),
+    "qwen/qwen3.8-flash": (0.15, 0.47),
     "deepseek/deepseek-v4-flash-0731": (0.04, 0.64),
     "deepseek-v4-flash-0731": (0.04, 0.64),
     "deepseek-v4-flash-latest": (0.0352, 0.1056),   # alias '~...-latest' SCONTATO (OpenRouter)
@@ -38,6 +39,7 @@ PRICES = {
     "deepseek-v4.1-flash": (0.10, 0.50),
     "deepseek-v4-flash-vision-exp": (0.22, 0.66),
     "gpt-6-luna": (0.10, 0.50),
+    "qwen3.8-flash": (0.15, 0.47),
     "glm": (0.60, 2.20),
     "qwen": (0.15, 0.60),
     "llama": (0.10, 0.40),
