@@ -477,6 +477,43 @@ def set_telemetry_enabled(value):
         _set_enabled(value)
     except Exception as e:
         log_error("set_telemetry_enabled", e)
+def _collapse_repetition(text, max_phrase_words=8, min_repeats=4):
+    """Rileva e collassa degenerazioni ripetitive del modello.
+
+    Esempio: 'ok let me write ok let me write ok let me write ...' viene ridotto
+    a una sola occorrenza, con nota esplicita. Ritorna il testo invariato se non
+    rileva alcuna ripetizione anomala.
+    """
+    if not text:
+        return text
+    words = text.split()
+    n = len(words)
+    if n < min_repeats * 2:
+        return text
+    best = None  # (punteggio, start, plen, reps)
+    for plen in range(1, max_phrase_words + 1):
+        i = 0
+        while i + plen <= n:
+            phrase = words[i:i + plen]
+            reps = 1
+            j = i + plen
+            while j + plen <= n and words[j:j + plen] == phrase:
+                reps += 1
+                j += plen
+            if reps >= min_repeats:
+                score = reps * plen
+                if best is None or score > best[0]:
+                    best = (score, i, plen, reps)
+            i += 1
+    if not best:
+        return text
+    _, start, plen, reps = best
+    phrase = " ".join(words[start:start + plen])
+    collapsed = words[:start] + [phrase] + words[start + plen * reps:]
+    result = " ".join(collapsed)
+    return result + f'\n\n[!] Output degenerato troncato: ripetizione di "{phrase}" x{reps}.'
+
+
 def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
     """
     Esegue la chiamata partendo dal modello target con reasoning sempre HIGH.
@@ -519,6 +556,10 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
                 extra_params = {
                     "temperature": 0.3,
                     "reasoning_effort": "high",
+                    # Penalita' anti-degenerazione: riducono i loop ripetitivi
+                    # tipo 'ok let me write ok let me write ...' alla fonte.
+                    "frequency_penalty": 0.4,
+                    "presence_penalty": 0.2,
                 }
                 kwargs.update(extra_params)
                 if tools_schema:
@@ -529,7 +570,7 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
                         op=f"chat:{attempt_model}", log=console.print)
                 except Exception as e_:
                     err_str = str(e_).lower()
-                    if extra_params and any(w in err_str for w in ["reasoning_effort","temperature","top_p","not supported","unknown parameter","invalid parameter","bad request"]):
+                    if extra_params and any(w in err_str for w in ["reasoning_effort","temperature","top_p","frequency_penalty","presence_penalty","not supported","unknown parameter","invalid parameter","bad request"]):
                         console.print(f"[dim][*] {attempt_model} non supporta parametri avanzati. Riprovo senza...[/dim]")
                         # Mantieni la richiesta esplicita dei parametri; alcuni
                         # provider possono rifiutarla e il retry serve solo come
@@ -537,10 +578,24 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
                         kwargs.pop("reasoning_effort", None)
                         kwargs.pop("temperature", None)
                         kwargs.pop("top_p", None)
+                        kwargs.pop("frequency_penalty", None)
+                        kwargs.pop("presence_penalty", None)
                         response = _rate_limited_call(**kwargs)
                     else:
                         raise
 
+            # Guardia anti-degenerazione: sanifica il contenuto prima di
+            # restituirlo, cosi' i loop ripetitivi non raggiungono mai l'utente.
+            try:
+                _msg = response.choices[0].message
+                _orig = getattr(_msg, "content", None)
+                if _orig:
+                    _clean = _collapse_repetition(_orig)
+                    if _clean != _orig:
+                        _msg.content = _clean
+                        console.print("[dim][!] Output degenerato rilevato e troncato.[/dim]")
+            except Exception:
+                pass
             if attempt_model != primary_model:
                 console.print(f"[dim][*] Fallback dinamico attivato: risposta completata con {attempt_model}[/dim]")
             return response, attempt_model
