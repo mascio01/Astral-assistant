@@ -543,6 +543,16 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
             system_content += "\n\n" + fmt
     except Exception:
         pass
+    try:
+        # Autoselezione ECC: hint progressivo (shortlist, mai il corpo).
+        # Stesso pattern di answer_format_hint: contesto, non ordine operativo.
+        from ecc_skills import prompt_hint as _ecc_hint
+        if os.environ.get("ASTRAL_ECC_HINT", "1") != "0":
+            hint = _ecc_hint(last_user)
+            if hint:
+                system_content += "\n\n" + hint
+    except Exception:
+        pass
     payload_messages = [{"role": "system", "content": system_content}] + messages
 
     for attempt_model in models_to_try:
