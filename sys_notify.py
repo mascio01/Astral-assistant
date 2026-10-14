@@ -33,6 +33,7 @@ _MSG_CAP = 220                    # lunghezza massima del corpo notifica
 _lock = threading.Lock()
 _last_same = {}                   # chiave -> timestamp ultimo invio
 _last_any = [0.0]
+_last_error = [""]                 # ultimo errore del toast (diagnostica, non blocca mai)
 
 # --- rilevamento focus ----------------------------------------------------
 _SELF_PID = os.getpid()
@@ -168,6 +169,10 @@ def _toast_command(title, message, app_id=APP_ID):
     m = base64.b64encode(message.encode("utf-8")).decode("ascii")
     return (
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime]|Out-Null;"
+        # Il tipo XmlDocument va caricato ESPLICITAMENTE: sotto PowerShell 5.1
+        # New-Object su un tipo WinRT non precaricato fallisce con TypeNotFound
+        # e il toast non parte mai (senza alcun errore visibile).
+        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType=WindowsRuntime]|Out-Null;"
         "$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'));"
         "$m=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'));"
         "$x=New-Object Windows.Data.Xml.Dom.XmlDocument;"
@@ -182,19 +187,34 @@ def _toast_command(title, message, app_id=APP_ID):
 
 
 def _show_toast(title, message):
-    """Lancia il toast. Ritorna True/False. Mai eccezioni."""
+    """Lancia il toast. Ritorna True/False. Mai eccezioni.
+
+    Il codice di uscita di PowerShell viene verificato: prima un toast fallito
+    era indistinguibile da uno riuscito, quindi il guasto restava invisibile.
+    """
     if not IS_WINDOWS:
         return False
     try:
         flags = 0x08000000  # CREATE_NO_WINDOW
-        subprocess.run(
+        proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
              _toast_command(title, message)],
-            capture_output=True, timeout=PS_TIMEOUT_S, creationflags=flags,
+            capture_output=True, text=True, timeout=PS_TIMEOUT_S,
+            creationflags=flags,
         )
+        if proc.returncode != 0:
+            _last_error[0] = (proc.stderr or proc.stdout or "").strip()[:500]
+            return False
+        _last_error[0] = ""
         return True
-    except Exception:
+    except Exception as exc:
+        _last_error[0] = f"{type(exc).__name__}: {exc}"[:500]
         return False
+
+
+def last_error():
+    """Ultimo errore di invio toast, per diagnostica. Stringa vuota se ok."""
+    return _last_error[0]
 
 
 def _debounced(key):
