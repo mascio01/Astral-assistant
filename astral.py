@@ -202,6 +202,71 @@ def _sys_notify(title, message, kind="info"):
         return sys_notify.notify(title, message, kind=kind)
     except Exception:
         return False
+
+
+def _plain_summary(text, cap=140):
+    """Riduce una risposta a una riga leggibile dal toast.
+
+    Toglie blocchi di codice, markup rich e markdown: nel toast serve testo
+    scorrevole, non sintassi. Tronca all'ultimo spazio utile per non spezzare
+    le parole. Mai eccezioni: ritorna "" in caso di problemi.
+    """
+    try:
+        import re as _re
+        t = str(text or "")
+        t = _re.sub(r"```.*?```", " ", t, flags=_re.S)          # blocchi di codice
+        t = _re.sub(r"\[/?[A-Za-z0-9# _.,=()\-]+\]", " ", t)   # markup rich
+        t = _re.sub(r"^\s{0,3}#{1,6}\s*", "", t, flags=_re.M)   # heading markdown
+        t = t.replace("**", "").replace("`", "").replace("|", " ")
+        t = " ".join(t.split())
+        if len(t) > cap:
+            cut = t[:cap]
+            sp = cut.rfind(" ")
+            if sp > cap // 2:
+                cut = cut[:sp]
+            t = cut.rstrip(" .,;:") + "..."
+        return t
+    except Exception:
+        return ""
+
+
+def _notify_turn_done(messages, elapsed_s):
+    """Toast "tocca a te" quando il turno e' concluso.
+
+    Il gate di focus vive dentro sys_notify: se la console di Astral e' in
+    primo piano non arriva nessun disturbo, quindi il toast compare solo
+    quando l'utente e' davvero altrove. Il corpo riassume l'ultima risposta,
+    cosi' il toast dice qualcosa di utile senza tornare sulla finestra.
+
+    Toggle: ASTRAL_NOTIFY_TURN=0 disattiva; ASTRAL_NOTIFY_TURN_MIN_S
+    (default 5) e' la durata minima del turno per cui vale la pena avvisare.
+    """
+    try:
+        if os.environ.get("ASTRAL_NOTIFY_TURN", "1").strip().lower() in (
+                "0", "false", "no", "off"):
+            return False
+        try:
+            min_s = float(os.environ.get("ASTRAL_NOTIFY_TURN_MIN_S", "5") or 5)
+        except ValueError:
+            min_s = 5.0
+        if elapsed_s < min_s:
+            return False
+
+        text = ""
+        for msg in reversed(messages):
+            if str(msg.get("role") or "") == "assistant":
+                text = str(msg.get("content") or "")
+                if text.strip():
+                    break
+        # Un turno puo' durare minuti: il toast deve variare, altrimenti il
+        # debounce interno lo scarta come se fosse una ripetizione.
+        summary = _plain_summary(text)
+        if summary:
+            summary = f"{int(elapsed_s)}s - {summary}"
+        return _sys_notify("Astral - tocca a te", summary, kind="turn_done")
+    except Exception:
+        return False
+
 from memory_store import checkpoint_pull, checkpoint_save, get_config, init_db
 from memory_meta import bootstrap_meta, record_usage
 from price_map import all_prices, cost_usd
@@ -693,6 +758,7 @@ def main():
     _mt_run = False
     _consec_errors = 0
     _busy = False          # True durante l'elaborazione di un turno (per distinguere Ctrl+C)
+    _turn_t0 = time.time()  # inizio turno: serve al toast "tocca a te"
     _turn_start_idx = 0    # indice dei messaggi all'inizio del turno corrente
     while True:
         try:
@@ -716,6 +782,7 @@ def main():
             if not user_input:
                 continue
             _busy = True
+            _turn_t0 = time.time()
             _turn_start_idx = len(messages)  # punto di rollback se l'utente annulla
 
             # Feedback immediato: non lasciare la console apparentemente bloccata
@@ -1535,6 +1602,9 @@ def main():
             # Salva periodicamente lo storico per non perderlo in caso di chiusura imprevista
             save_persistent_history(messages)
             _consec_errors = 0  # turno completato: azzera il contatore errori
+            # Turno concluso: la palla torna all'utente. Se sta guardando la
+            # console non viene disturbato (gate di focus in sys_notify).
+            _notify_turn_done(messages, time.time() - _turn_t0)
             _busy = False
 
         except KeyboardInterrupt:
