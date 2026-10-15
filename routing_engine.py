@@ -328,7 +328,7 @@ _REASONING_HINTS = ("confronta", "progetta", "pianifica", "architettura", "decid
 # "ragionamento": ne servono almeno _REASONING_MIN_SIGNALS per aprire il gate
 # (un solo verbo non basta: "valuta" compare anche in frasi conversazionali).
 _REASONING_STRONG = (
-    "ragiona", "ragionamento", "step by step", "passo per passo", "catena di passaggi",
+    "ragiona", "step by step", "passo per passo", "catena di passaggi",
     "dimostra", "dimostrazione", "deduci", "inferisci", "deriva", "formalizza",
     "teorema", "puzzle", "enigma", "indovinello", "trovare l'errore",
     "calcola", "calcolo", "equazione", "probabilita", "combinatoria",
@@ -341,9 +341,16 @@ _REASONING_WEAK = ("confronta", "decidi", "valuta", "perche", "scegli",
 
 
 def _reasoning_signals(lower: str) -> int:
-    """Numero di segnali di ragionamento indipendenti (forti + deboli)."""
-    strong = sum(1 for h in _REASONING_STRONG if h in lower)
-    weak = sum(1 for h in _REASONING_WEAK if h in lower)
+    """Numero di segnali di ragionamento indipendenti (forti + deboli).
+
+    Match per PAROLA (word-boundary), non per sottostringa: altrimenti
+    "ragionamento" farebbe scattare il segnale "ragiona" e una frase che
+    PARLA di ragionamento verrebbe classificata come richiesta di ragionamento.
+    """
+    def _hit(h: str) -> bool:
+        return re.search(r"\b" + re.escape(h) + r"\b", lower) is not None
+    strong = sum(1 for h in _REASONING_STRONG if _hit(h))
+    weak = sum(1 for h in _REASONING_WEAK if _hit(h))
     return strong + weak
 
 
@@ -525,11 +532,12 @@ def answer_format_hint(text: str, categoria: str | None = None) -> str:
                 "Prosa breve (max ~150 parole), al massimo 2-3 punti chiave solo se "
                 "davvero utili. Vai al sodo.")
     if cat == "ragionamento":
-        return ("FORMATO RISPOSTA (ragionamento): ragiona in modo esplicito e "
-                "strutturato. Mostra i passaggi chiave, esplicita le ipotesi e "
-                "le assunzioni, arriva a una conclusione chiara. Se usi numeri o "
-                "stime, mostra come li ottieni. Niente prolissita': i passaggi "
-                "che contano, non ogni micro-derivazione.")
+        return ("FORMATO RISPOSTA (ragionamento): fornisci una risposta finale "
+                "chiara e strutturata, con i passaggi chiave in forma sintetica. "
+                "NON riversare il tuo ragionamento interno o la catena di pensieri "
+                "grezza: mostra solo le conclusioni e i passaggi essenziali. "
+                "Esplicita le ipotesi rilevanti e, se usi numeri o stime, indica "
+                "come li ottieni. Niente prolissita'.")
     if cat == "conversazione":
         return ("FORMATO RISPOSTA (conversazione): tono naturale e colloquiale, "
                 "risposta breve; niente strutture da documento (tabelle/header) "
