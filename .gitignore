@@ -136,3 +136,6 @@ nico_shifts.json
 ecc_skills/
 .ecc_skills_index.json
 lazy_bench.py
+
+# Dati personali di analisi bollette (locali, mai versionati)
+energia/
