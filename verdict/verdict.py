@@ -27,14 +27,14 @@ SIMBOLI = ["Delta", "Omega", "Sigma", "Lambda", "Theta", "Iota", "Kappa", "Rho"]
 # (modello_openrouter, temperatura) - temperatura FORZATA <= 0.5 per tutti
 PROFILI_GIUDICI = {
     "standard": [
-        ("deepseek/deepseek-v4-pro", 0.3),
-        ("z-ai/glm-5.3", 0.4),
-        ("openai/gpt-5.6-luna-pro", 0.5),
+        ("google/gemini-3.7-flash", 0.3),
+        ("moonshotai/kimi-k2.5", 0.4),
+        ("qwen/qwen3.6-flash", 0.5),
     ],
     "lite": [
-        ("deepseek/deepseek-v4-flash-0731", 0.3),
-        ("deepseek/deepseek-v4.1-flash", 0.4),
-        ("openai/gpt-5.6-luna", 0.5),
+        ("deepseek/deepseek-v4.1-flash", 0.3),
+        ("qwen/qwen3.7-flash", 0.4),
+        ("openai/gpt-6-luna", 0.5),
     ],
 }
 GIUDICI = PROFILI_GIUDICI["standard"]  # attivo, riassegnato da run_verdict(profilo=...)
@@ -130,6 +130,13 @@ PESI_GIUDICI_DEFAULT = {
     "deepseek/deepseek-v4-flash-0731": {"analisi": 7.0, "affidabilita": 7.5},
     "deepseek/deepseek-v4.1-flash": {"analisi": 8.0, "affidabilita": 7.5},
     "openai/gpt-5.6-luna": {"analisi": 8.0, "affidabilita": 8.5},
+    # Giudici correnti (standard = set A, lite = L2). Pesi da LiveBench:
+    # analisi ~ reasoning, affidabilita ~ if.
+    "google/gemini-3.7-flash": {"analisi": 8.8, "affidabilita": 8.0},
+    "moonshotai/kimi-k2.5": {"analisi": 9.0, "affidabilita": 7.2},
+    "qwen/qwen3.6-flash": {"analisi": 8.7, "affidabilita": 7.7},
+    "qwen/qwen3.7-flash": {"analisi": 8.7, "affidabilita": 7.7},
+    "openai/gpt-6-luna": {"analisi": 8.5, "affidabilita": 6.0},
 }
 BENCHMARK_FILE = os.path.join("verdict", ".verdict_benchmark_cache.json")
 BENCHMARK_TTL = 24 * 3600
