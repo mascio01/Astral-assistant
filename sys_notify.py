@@ -29,11 +29,69 @@ DEBOUNCE_SAME_S = 20.0            # stesso (titolo,messaggio) entro N secondi: i
 COOLDOWN_ANY_S = 2.0              # distanza minima fra due toast qualsiasi
 PS_TIMEOUT_S = 10                 # timeout del processo PowerShell di appoggio
 _MSG_CAP = 220                    # lunghezza massima del corpo notifica
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "sys_notify.log")
+LOG_MAX_BYTES = 262144           # oltre questa soglia il log viene troncato
+LOG_KEEP_BYTES = 131072          # coda conservata dopo il troncamento
+
+# --- suoni per tipo di notifica -------------------------------------------
+# Mappa kind -> sorgente audio del toast (eventi sonori di Windows).
+# I kind non elencati usano il suono di default del sistema.
+_SOUNDS = {
+    "info":             "ms-winsoundevent:Notification.Default",
+    "turn_done":        "ms-winsoundevent:Notification.Default",
+    "soft_ask":         "ms-winsoundevent:Notification.IM",
+    "ask_user":         "ms-winsoundevent:Notification.IM",
+    "confirm_sys_cmd":  "ms-winsoundevent:Notification.IM",
+    "confirm_sys_trash": "ms-winsoundevent:Notification.IM",
+    "token_budget":     "ms-winsoundevent:Notification.Reminder",
+    "warn_rounds":      "ms-winsoundevent:Notification.Reminder",
+    "warn_rounds2":     "ms-winsoundevent:Notification.Reminder",
+    "watchdog":         "ms-winsoundevent:Notification.Reminder",
+    "err_timeout":      "ms-winsoundevent:Notification.Alarm",
+    "circuit_breaker":  "ms-winsoundevent:Notification.Alarm",
+    "hard_stop":        "ms-winsoundevent:Notification.Alarm",
+}
+_ERR_PREFIX_SOUND = "ms-winsoundevent:Notification.Alarm"  # kind "err_*"
 
 _lock = threading.Lock()
 _last_same = {}                   # chiave -> timestamp ultimo invio
 _last_any = [0.0]
 _last_error = [""]                 # ultimo errore del toast (diagnostica, non blocca mai)
+_last_reason = [""]                # ultimo esito/motivo di scarto della notifica
+
+
+def _note(reason):
+    """Registra l'esito di una richiesta di notifica (memoria + file di log).
+
+    Prima i casi erano indistinguibili fra loro:
+      skip_focus_on_astral      -> soppressa perche' Astral ha il focus
+      skip_debounce_or_cooldown -> scartata per debounce/cooldown
+      sent                      -> consegnata al sistema
+      send_failed|<errore>      -> PowerShell ha fallito
+    Mai eccezioni e mai blocco del chiamante.
+    """
+    try:
+        _last_reason[0] = reason
+    except Exception:
+        pass
+    try:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = "%s | pid=%s | %s\n" % (stamp, os.getpid(), reason)
+        folder = os.path.dirname(LOG_PATH)
+        if folder and not os.path.isdir(folder):
+            os.makedirs(folder, exist_ok=True)
+        try:
+            if os.path.getsize(LOG_PATH) > LOG_MAX_BYTES:
+                with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as fh:
+                    tail = fh.read()[-LOG_KEEP_BYTES:]
+                with open(LOG_PATH, "w", encoding="utf-8", errors="replace") as fh:
+                    fh.write(tail)
+        except OSError:
+            pass
+        with open(LOG_PATH, "a", encoding="utf-8", errors="replace") as fh:
+            fh.write(line)
+    except Exception:
+        pass
 
 # --- rilevamento focus ----------------------------------------------------
 _SELF_PID = os.getpid()
@@ -159,14 +217,17 @@ def has_focus():
 
 
 # --- invio toast ----------------------------------------------------------
-def _toast_command(title, message, app_id=APP_ID):
+def _toast_command(title, message, app_id=APP_ID, sound=None):
     """Costruisce il comando PowerShell che mostra il toast.
 
     Titolo e corpo viaggiano in base64: nessuna interpolazione/escaping
     possibile, quindi nessun rischio di injection da testo arbitrario.
+    sound: sorgente audio ms-winsoundevent (es. Notification.Reminder),
+           oppure None per il suono di default del sistema.
     """
     t = base64.b64encode(title.encode("utf-8")).decode("ascii")
     m = base64.b64encode(message.encode("utf-8")).decode("ascii")
+    audio = ('<audio src="%s"/>' % sound) if sound else ""
     return (
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime]|Out-Null;"
         # Il tipo XmlDocument va caricato ESPLICITAMENTE: sotto PowerShell 5.1
@@ -176,17 +237,17 @@ def _toast_command(title, message, app_id=APP_ID):
         "$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'));"
         "$m=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'));"
         "$x=New-Object Windows.Data.Xml.Dom.XmlDocument;"
-        "$x.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text></text><text></text></binding></visual></toast>');"
+        "$x.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text></text><text></text></binding></visual>%s</toast>');"
         "$n=$x.GetElementsByTagName('text');"
         "$n.Item(0).AppendChild($x.CreateTextNode($t))|Out-Null;"
         "$n.Item(1).AppendChild($x.CreateTextNode($m))|Out-Null;"
         "$toast=[Windows.UI.Notifications.ToastNotification]::new($x);"
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('%s').Show($toast)"
-        % (t, m, app_id)
+        % (t, m, audio, app_id)
     )
 
 
-def _show_toast(title, message):
+def _show_toast(title, message, sound=None):
     """Lancia il toast. Ritorna True/False. Mai eccezioni.
 
     Il codice di uscita di PowerShell viene verificato: prima un toast fallito
@@ -198,17 +259,19 @@ def _show_toast(title, message):
         flags = 0x08000000  # CREATE_NO_WINDOW
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-             _toast_command(title, message)],
+             _toast_command(title, message, sound=sound)],
             capture_output=True, text=True, timeout=PS_TIMEOUT_S,
             creationflags=flags,
         )
         if proc.returncode != 0:
             _last_error[0] = (proc.stderr or proc.stdout or "").strip()[:500]
+            _note("send_failed|rc=%s|%s" % (proc.returncode, _last_error[0][:200]))
             return False
         _last_error[0] = ""
         return True
     except Exception as exc:
         _last_error[0] = f"{type(exc).__name__}: {exc}"[:500]
+        _note("send_failed|%s" % _last_error[0][:200])
         return False
 
 
@@ -217,11 +280,21 @@ def last_error():
     return _last_error[0]
 
 
-def _debounced(key):
-    """True se la notifica va SCARTATA per debounce/cooldown."""
+def last_reason():
+    """Ultimo motivo/esito registrato da notify(). Vuoto se mai chiamata."""
+    return _last_reason[0]
+
+
+def _debounced(key, force=False):
+    """True se la notifica va SCARTATA per debounce/cooldown.
+
+    Con force=True il cooldown globale non si applica: serve per gli avvisi
+    che richiedono una risposta dell'utente (es. questionario), dove un toast
+    appena precedente non deve poter inghiottire la richiesta.
+    """
     now = time.time()
     with _lock:
-        if now - _last_any[0] < COOLDOWN_ANY_S:
+        if not force and now - _last_any[0] < COOLDOWN_ANY_S:
             return True
         if key in _last_same and now - _last_same[key] < DEBOUNCE_SAME_S:
             return True
@@ -248,12 +321,19 @@ def notify(title, message, kind="info", force=False):
         title = (str(title) or "Astral").strip()[:80]
         message = " ".join(str(message or "").split())[:_MSG_CAP]
         if not message:
+            _note("skip_empty_message|kind=%s" % kind)
             return False
         if not force and has_focus():
+            _note("skip_focus_on_astral|kind=%s|title=%s" % (kind, title))
             return False
-        if _debounced((kind, title, message)):
+        if _debounced((kind, title, message), force=force):
+            _note("skip_debounce_or_cooldown|kind=%s|title=%s" % (kind, title))
             return False
-        th = threading.Thread(target=_show_toast, args=(title, message), daemon=True)
+        sound = _SOUNDS.get(kind)
+        if sound is None and kind.startswith("err_"):
+            sound = _ERR_PREFIX_SOUND
+        _note("sent|kind=%s|title=%s" % (kind, title))
+        th = threading.Thread(target=_show_toast, args=(title, message, sound), daemon=True)
         th.start()
         return True
     except Exception:

@@ -293,7 +293,7 @@ def test_pool_include_il_modello_di_ragionamento():
     ai due deepseek, che sono la policy di costo."""
     assert R.ROUTING_POOL == ["deepseek/deepseek-v4-flash-0731",
                               "deepseek/deepseek-v4.1-flash",
-                              "qwen/qwen3.8-flash"]
+                              "qwen/qwen3.7-flash"]
     # Nessun modello "caro" e' entrato come default di conversazione.
     assert "openai/gpt-5.6-luna" not in R.ROUTING_POOL
 

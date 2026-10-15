@@ -442,6 +442,16 @@ def _build_models() -> dict:
                       "conversazione": b["conversazione"], "codice": b["codice"],
                       "affidabilita": b["affidabilita"],
                       "fonte": "livebench+openrouter(famiglia)"})
+    # Quarta passata: coerenza top-level <- lb. Le eredita' sopra copiano solo
+    # conversazione/codice/affidabilita, quindi i modelli ereditati restavano
+    # SENZA "reasoning" top-level: pool_suggerito() li ordinava a 0 pur avendo
+    # il punteggio reale dentro "lb". Qui si propaga ogni metrica mancante.
+    _strutturali = {"costo", "prezzo_in", "prezzo_out", "contesto",
+                    "sconto_alias", "lb", "lb_release"}
+    for mid, e in out.items():
+        for k, v in (e.get("lb") or {}).items():
+            if k not in _strutturali and k not in e:
+                e[k] = v
     return out
 
 
@@ -451,19 +461,20 @@ def _build_models() -> dict:
 # 2 modelli per policy di costo: 0731 e' il default (input 0.04/M), 4.1-flash
 # entra solo su codice complesso (input 0.10/M). Il terzo modello serve solo il
 # ragionamento. gpt-6-luna rimosso: reasoning 8.18 e affidabilita' 5.59, il
-# piu' basso del pool su entrambi gli assi. Sostituito da qwen3.8-flash
-# (reasoning 8.74, affidabilita' 7.71, 0.15/0.47 $/M).
+# piu' basso del pool su entrambi gli assi. Sostituito da qwen3.7-flash
+# (reasoning 8.74, affidabilita' 7.71, 0.03/0.13 $/M): stessi punteggi di
+# qwen3.8-flash (7.26 codice, 7.46 conversazione) a ~5x in meno sull'input.
 POOL_CANONICO = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "qwen/qwen3.8-flash",
+    "qwen/qwen3.7-flash",
 ]
 
 # Modelli ammessi SOLO nel gruppo ragionamento. Sono esclusi da codice e
 # conversazione per non alterare la policy di costo (il 0731 resta il default
 # economico dove non serve ragionamento forte).
 POOL_REASONING_ONLY = {
-    "qwen/qwen3.8-flash",
+    "qwen/qwen3.7-flash",
 }
 
 

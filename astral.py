@@ -76,13 +76,13 @@ from loop_detector import LoopDetector
 # Analisi sullo storico (logs/executions.jsonl, ~3.8k chiamate) mostra una
 # distribuzione bimodale: ~86% dei turni usa <=2 round, ma il vero lavoro
 # agentico multi-step arriva a decine di round (p90=48). Quindi:
-#   - WARN1 (config 'tool_round_warn1', default 30): avviso rosso non bloccante.
+#   - WARN1 (config 'tool_round_warn1', default 50): avviso rosso non bloccante.
 #   - WARN2 (config 'tool_round_warn2', default 100): secondo avviso non bloccante.
 #   - SOFT  (config 'tool_round_soft_limit', default 130): avviso + conferma utente.
 #   - HARD  (config 'tool_round_hard_limit', default 150): stop assoluto.
 #   - TOKEN (config 'tool_token_budget', default 2000000; 0=illimitato):
 #     stop quando i token cumulati nel turno superano il budget.
-_TOOL_ROUND_WARN1_DEFAULT = 30
+_TOOL_ROUND_WARN1_DEFAULT = 50
 _TOOL_ROUND_WARN2_DEFAULT = 100
 _TOOL_ROUND_DEFAULT = 130
 _TOOL_ROUND_HARD_DEFAULT = 150
@@ -1336,8 +1336,8 @@ def main():
             _tool_stop_reason = None
             _tool_tokens = _usage_total_tokens(usage)  # token del primo turno
             _soft_asked = False
-            _warned_30 = False
-            _warned_100 = False
+            _warned_warn1 = False
+            _warned_warn2 = False
             while msg.tool_calls:
                 _tool_round += 1
                 # Budget token cumulati nel turno (0 = illimitato).
@@ -1376,8 +1376,8 @@ def main():
                     )
                     break
                 # Avvisi non bloccanti: il ragionamento continua.
-                if _tool_round >= _tool_round_warn1 and not _warned_30:
-                    _warned_30 = True
+                if _tool_round >= _tool_round_warn1 and not _warned_warn1:
+                    _warned_warn1 = True
                     console.print(ui_error(
                         f"[!] Attenzione: {_tool_round} round di tool in questo turno "
                         f"({_tool_tokens:,} token finora). Il turno sta diventando lungo."
@@ -1387,8 +1387,8 @@ def main():
                         f"Turno lungo: {_tool_round} round di tool ({_tool_tokens:,} token).",
                         kind="warn_rounds",
                     )
-                if _tool_round >= _tool_round_warn2 and not _warned_100:
-                    _warned_100 = True
+                if _tool_round >= _tool_round_warn2 and not _warned_warn2:
+                    _warned_warn2 = True
                     console.print(ui_error(
                         f"[!] Attenzione: {_tool_round} round di tool in questo turno "
                         f"({_tool_tokens:,} token finora). Ci stiamo avvicinando al limite "

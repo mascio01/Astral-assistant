@@ -397,8 +397,11 @@ def _h_ask_user_question(args):
             labels.append(label)
         try:
             import sys_notify as _sysn
+            # force=True: la console resta BLOCCATA in attesa della risposta,
+            # quindi il toast deve partire anche se la finestra di Astral ha il
+            # focus (l'utente puo' essere lontano dalla tastiera).
             _sysn.notify("Astral - Serve una scelta",
-                         f"{header}: {question}", kind="ask_user")
+                         f"{header}: {question}", kind="ask_user", force=True)
         except Exception:
             pass
         console.print(f"\n[bold cyan]{escape(header)}[/]  {escape(question)}")
@@ -455,7 +458,67 @@ def _h_ask_user_question(args):
     return {"content": [{"type": "text", "text": text}], "details": details}
 
 
-_READ_ONLY = {"scan_storage", "recall", "test_python_file"}
+def _tool_brief(name, spec, with_schema=True):
+    """Metadati compatti di un tool, con schema opzionale (parametri)."""
+    brief = {"name": name, "namespace": spec["namespace"],
+             "description": spec["description"], "read_only": spec["read_only"]}
+    if with_schema:
+        try:
+            brief["parameters"] = (spec.get("schema") or {}).get("function", {}).get("parameters", {})
+        except Exception:
+            brief["parameters"] = {}
+    return brief
+
+
+def _h_tool_search(args):
+    """Discovery on-demand del registro tool.
+
+    Il modello vede sempre solo un sottoinsieme di schemi (Tier 1 + namespace
+    attivi), ma TUTTI i tool registrati sono gia' chiamabili. Questo handler
+    rende il registro ispezionabile: cerca per parola chiave o per nome esatto
+    e restituisce gli schemi completi, cosi' un tool non pubblicizzato diventa
+    utilizzabile immediatamente.
+    """
+    raw_names = args.get("names") or []
+    if isinstance(raw_names, str):
+        raw_names = [n.strip() for n in raw_names.replace(";", ",").split(",") if n.strip()]
+    query = str(args.get("query") or "").strip()
+    with_schema = args.get("with_schema", True)
+    if with_schema is None:
+        with_schema = True
+    limit = args.get("limit") or 25
+    try:
+        limit = max(1, min(int(limit), 100))
+    except Exception:
+        limit = 25
+
+    out = []
+    if raw_names:
+        for n in raw_names[:limit]:
+            spec = _TOOL_SPECS.get(n)
+            if not spec:
+                out.append({"name": n, "error": "tool sconosciuto"})
+            else:
+                out.append(_tool_brief(n, spec, with_schema))
+    else:
+        q = query.lower()
+        for name, spec in _TOOL_SPECS.items():
+            haystack = (name + " " + spec["namespace"] + " " + spec["description"]).lower()
+            if not q or q in haystack:
+                out.append(_tool_brief(name, spec, with_schema))
+                if len(out) >= limit:
+                    break
+    if not raw_names and not query:
+        out = [{"name": n, "namespace": _TOOL_SPECS[n]["namespace"],
+                "description": _TOOL_SPECS[n]["description"],
+                "read_only": _TOOL_SPECS[n]["read_only"]} for n in list(_TOOL_SPECS)[:limit]]
+    return {"tools": out, "count": len(out),
+            "registry_size": len(_TOOL_SPECS),
+            "hint": ("Questi tool sono gia' chiamabili con il nome esatto anche se non "
+                     "comparivano tra gli schemi iniziali. Usa names=[...] per i dettagli.")}
+
+
+_READ_ONLY = {"scan_storage", "recall", "test_python_file", "tool_search"}
 
 def _build_schemas():
     from tools_exec import tools
@@ -498,6 +561,24 @@ def _build_schemas():
     _register_knowmap()
     _register_verdict()
     _register_ecc_skills()
+    _register("tool_search", "meta",
+              "Cerca nel registro completo dei tool (anche quelli non pubblicizzati) e ne "
+              "restituisce descrizione e parametri. Usalo quando ti serve una funzione che non "
+              "vedi tra i tool disponibili.",
+              {"type": "function", "function": {
+                  "name": "tool_search",
+                  "description": ("Cerca nel registro completo dei tool e carica on-demand i loro schemi. "
+                                  "Accetta una query testuale (es. 'verdict', 'screen', 'pdf') oppure "
+                                  "names con nomi esatti. Utile per scoprire funzioni non elencate "
+                                  "tra gli strumenti correnti."),
+                  "parameters": {"type": "object", "properties": {
+                      "query": {"type": "string", "description": "Parola chiave da cercare in nome, namespace e descrizione"},
+                      "names": {"type": "array", "items": {"type": "string"},
+                                "description": "Nomi esatti di tool di cui ottenere lo schema"},
+                      "with_schema": {"type": "boolean", "description": "Include i parametri completi (default true)"},
+                      "limit": {"type": "integer", "description": "Numero massimo di risultati (default 25)"}}},
+                  "required": []}},
+              _h_tool_search, timeout=10.0, read_only=True)
     _register("ask_user_question", "interaction",
               "Pone all'utente un questionario strutturato con opzioni, risposta libera e note.",
               {"type": "function", "function": {
@@ -670,6 +751,9 @@ _ALWAYS_ON = {
     # e deve restare trovabile anche senza lemmi tecnici. ecc_skill_load NON e'
     # qui: entra al follow-up via _context_namespaces (fase tool) dopo la search.
     "ecc_skill_search",
+    # tool_search: meta-tool di discovery. Deve essere sempre visibile, altrimenti
+    # il modello non ha modo di accorgersi dei namespace non iniettati.
+    "tool_search",
 }
 
 # Tier 2: namespace iniettati solo se l'intento o il contesto li richiamano.
@@ -678,13 +762,15 @@ _NAMESPACE_TRIGGERS = {
             r"font[ei]|repo|readme",),
     "subagents": (r"struttur|codebase|progett|analiz|revision|review|\bdiff\b|"
                   r"architettur|scout|indipendent|avversar",),
+    "meta": (r"\btool\b|\bstrument\w*|funzion\w* disponibil|quali tool|che tool|"
+             r"discovery|registro",),
     "knowledge": (r"tariff|prezz|cost[oi]|benchmark|modell|routing|knowmap|"
                   r"knowledge|livebench|openrouter|qualita|mappa della conoscenza|"
                   r"dove trovo|dati indicizzati|catalogo|\bskill\b|\becc\b|"
                   r"pattern|standard|linee guida|best practice|convenzion|"
                   r"metodolog|workflow|procedura|come si fa",),
-    "verdict": (r"verdetto|giudic|consiglio|dubbio|deliber|parere|controvers|"
-                r"decision|decid|valuta",),
+    "verdict": (r"verdetto|verdict|giudic|giudizi|consiglio|dubbio|deliber|parere|"
+                r"controvers|decision|decid|valuta|critica avversar",),
 }
 
 

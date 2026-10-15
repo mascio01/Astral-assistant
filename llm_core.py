@@ -209,7 +209,9 @@ MODELS = {
     "gpt-5.6-luna": "openai/gpt-5.6-luna",
     "gpt-6-luna": "openai/gpt-6-luna",
     "6-luna": "openai/gpt-6-luna",
-    "qwen": "qwen/qwen3.8-flash",
+    "qwen": "qwen/qwen3.7-flash",
+    "qwen3.7": "qwen/qwen3.7-flash",
+    "qwen3.7-flash": "qwen/qwen3.7-flash",
     "qwen3.8": "qwen/qwen3.8-flash",
     "qwen3.8-flash": "qwen/qwen3.8-flash",
     "auto": "auto"
@@ -217,16 +219,17 @@ MODELS = {
 
 # Full IDs verificati su OpenRouter (ammessi oltre ai valori di MODELS)
 EXTRA_VALID_MODELS = {"deepseek/deepseek-v4-flash-0731", "deepseek/deepseek-v4.1-flash",
-                      "qwen/qwen3.8-flash"}
+                      "qwen/qwen3.8-flash", "qwen/qwen3.7-flash"}
 
 # Pool a 2 modelli per codice/conversazione: il 0731 e' il default (input
 # 0.04/M); il 4.1-flash (input 0.10/M) entra solo su codice complesso. Il terzo
 # modello serve solo il ragionamento. gpt-6-luna rimosso: reasoning 8.18 e
-# affidabilita' 5.59, il piu' basso del pool su entrambi gli assi.
+# affidabilita' 5.59, il piu' basso del pool su entrambi gli assi. qwen3.7-flash
+# sostituisce qwen3.8-flash: stessi punteggi, input ~5x piu' economico.
 DYNAMIC_MODELS_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "qwen/qwen3.8-flash",
+    "qwen/qwen3.7-flash",
 ]
 
 current_model = "auto"

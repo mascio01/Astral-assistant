@@ -93,12 +93,13 @@ _PERSONAL_LOCK = threading.RLock()
 # (input 0.10/M, 2.5x). Il terzo modello serve SOLO il ragionamento.
 # gpt-6-luna rimosso: reasoning 8.18 e affidabilita' 5.59, cioe' il piu' basso
 # del pool su entrambi gli assi, a un costo non inferiore agli altri.
-# qwen3.8-flash lo sostituisce: reasoning 8.74 (il piu' alto del pool) e
-# affidabilita' 7.71, a 0.15/0.47 $/M.
+# qwen3.7-flash lo sostituisce: reasoning 8.74 (il piu' alto del pool) e
+# affidabilita' 7.71, a 0.03/0.13 $/M (stessi punteggi di qwen3.8-flash,
+# input ~5x piu' economico).
 ROUTING_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "qwen/qwen3.8-flash",
+    "qwen/qwen3.7-flash",
 ]
 
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico)
@@ -109,6 +110,7 @@ ROUTING_POOL = [
 DEFAULT_BENCHMARK = {
     "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 8.0, "reasoning": 8.67, "affidabilita": 7.0, "costo": 8.5},
     "qwen/qwen3.8-flash": {"conversazione": 7.46, "codice": 7.26, "reasoning": 8.74, "affidabilita": 7.71, "costo": 7.78},
+    "qwen/qwen3.7-flash": {"conversazione": 7.46, "codice": 7.26, "reasoning": 8.74, "affidabilita": 7.71, "costo": 9.02},
     "deepseek/deepseek-v4-flash-vision-exp": {"conversazione": 8.04, "codice": 6.82, "reasoning": 8.54, "affidabilita": 7.1, "costo": 6.5},
     "deepseek/deepseek-v4-flash-0731": {"conversazione": 7.92, "codice": 7.5, "reasoning": 8.66, "affidabilita": 6.55, "costo": 9.0},
     "openai/gpt-5.6-sol": {"conversazione": 9.5, "codice": 9.0, "reasoning": 9.16, "affidabilita": 9.5, "costo": 5.0},
