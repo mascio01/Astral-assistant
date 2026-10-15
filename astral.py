@@ -1817,6 +1817,28 @@ if __name__ == "__main__":
         selfmap.start_watcher()  # sincronizzazione continua durante il runtime
     except Exception:
         pass  # mai bloccare l'avvio per la mappa
+    # Skill ECC: vendorizzate on-demand, non versionate. Al primo avvio (cartella
+    # assente) si chiede se scaricarle. Mai bloccante: qualunque errore e' ignorato.
+    try:
+        import ecc_bootstrap as _ecc_boot
+
+        if not _ecc_boot.is_installed():
+            def _ask_ecc(text):
+                try:
+                    return console.input(f"[bold orange_red1]{text}[/] (s/N): ")
+                except (EOFError, KeyboardInterrupt):
+                    return ""
+
+            _ecc_res = _ecc_boot.ensure_skills(ask=_ask_ecc)
+            _st = _ecc_res.get("status")
+            if _st == "installed":
+                console.print(f"[dim][ecc] installate {_ecc_res.get('skills', 0)} skill "
+                              f"e {_ecc_res.get('agents', 0)} agenti[/dim]")
+            elif _st == "error":
+                console.print(f"[dim][ecc] installazione non riuscita: "
+                              f"{_ecc_res.get('error', '')}[/dim]")
+    except Exception:
+        pass  # mai bloccare l'avvio per le skill ECC
     if "--repair" in sys.argv:
         try:
             auto_repair()

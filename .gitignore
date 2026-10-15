@@ -131,3 +131,8 @@ RECUPERO_RAGIONAMENTO_*.md
 credentials.json
 # Turni personali Nico (solo locale)
 nico_shifts.json
+
+# ECC skills/agenti: vendorizzati on-demand, non versionati (vedi ecc_bootstrap.py)
+ecc_skills/
+.ecc_skills_index.json
+lazy_bench.py
