@@ -1501,8 +1501,12 @@ def main():
             else:
                 final_text = (msg.content or "").strip()
             if not final_text:
-                # Fallback: alcuni modelli mettono il testo in reasoning_content o tornano vuoti
-                final_text = (getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or "").strip()
+                # Fallback: alcuni modelli mettono il testo in reasoning_content.
+                # NON riversare la catena di pensieri grezza come risposta visibile:
+                # se e' lunga (tipico CoT) la scarto, altrimenti la uso come risposta.
+                _reason = (getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or "").strip()
+                if _reason and len(_reason) <= 600:
+                    final_text = _reason
             if not final_text and tool_followup_error:
                 final_text = (
                     "La fase strumenti e' terminata, ma non e' stato possibile generare "
