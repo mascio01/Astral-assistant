@@ -102,6 +102,28 @@ def test_g13_gateway_blocca_loop_identico():
     assert len(chiamate) == 2, chiamate
 
 
+def test_g13_reset_loop_state_sblocca_nuovo_turno():
+    """[FIX P1] Lo stato anti-loop non deve trascinarsi tra turni indipendenti.
+
+    Senza reset, una chiamata identica ripetuta in un turno successivo
+    verrebbe bloccata come loop anche se il turno precedente e' concluso.
+    """
+    with Patcher() as p:
+        p.set(G, "_LOOP_CALLS", [])
+        p.set(G, "_TOOL_SPECS", dict(G._TOOL_SPECS))
+        G._register("tool_finto", "test", "test", {},
+                    lambda a: {"status": "ok"})
+        # turno 1: due chiamate identiche (sotto la soglia di blocco)
+        G.call_tool("tool_finto", {"x": 1})
+        G.call_tool("tool_finto", {"x": 1})
+        # nuovo turno: reset dello stato
+        G.reset_loop_state()
+        assert G._LOOP_CALLS == [], G._LOOP_CALLS
+        # la stessa chiamata nel nuovo turno NON deve essere un loop
+        r = G.call_tool("tool_finto", {"x": 1})
+    assert not (r or {}).get("loop_guard"), r
+
+
 def test_g13_argomenti_diversi_non_sono_loop():
     with Patcher() as p:
         p.set(G, "_LOOP_CALLS", [])

@@ -139,3 +139,6 @@ lazy_bench.py
 
 # Dati personali di analisi bollette (locali, mai versionati)
 energia/
+
+# Audit di riparazione automatica (log locale, mai versionato)
+.repair_audit.jsonl

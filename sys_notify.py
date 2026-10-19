@@ -3,7 +3,8 @@
 
 Regole di progetto:
   * Si notifica SOLO se la console/finestra di Astral NON e' in primo piano:
-    se stai gia' guardando Astral non arriva nessun disturbo.
+    se stai gia' guardando Astral non arriva nessun disturbo. Il gate e'
+    attivo di default; disattivabile con ASTRAL_NOTIFY_FOCUS_GATE=0.
   * Best-effort assoluto: nessuna eccezione puo' risalire al chiamante e il
     REPL non viene mai bloccato (invio in thread daemon).
   * Debounce per testo (lo stesso avviso non ripete un toast a raffica) e
@@ -323,7 +324,9 @@ def notify(title, message, kind="info", force=False):
         if not message:
             _note("skip_empty_message|kind=%s" % kind)
             return False
-        if not force and has_focus():
+        focus_gate = os.environ.get("ASTRAL_NOTIFY_FOCUS_GATE", "1").strip().lower() not in (
+            "0", "false", "no", "off")
+        if not force and focus_gate and has_focus():
             _note("skip_focus_on_astral|kind=%s|title=%s" % (kind, title))
             return False
         if _debounced((kind, title, message), force=force):

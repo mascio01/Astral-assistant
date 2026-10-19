@@ -480,46 +480,179 @@ def set_telemetry_enabled(value):
         _set_enabled(value)
     except Exception as e:
         log_error("set_telemetry_enabled", e)
-def _collapse_repetition(text, max_phrase_words=8, min_repeats=4):
+# Tag/blocchi di reasoning inline che alcuni modelli emettono dentro 'content'
+# invece che nel campo dedicato. Vanno rimossi PRIMA del display: ultimo strato
+# difensivo contro il wall-of-text (audit C).
+_INLINE_REASONING_PATTERNS = (
+    re.compile(r"<\s*thinking\s*>.*?<\s*/\s*thinking\s*>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<\s*reasoning\s*>.*?<\s*/\s*reasoning\s*>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<\s*scratchpad\s*>.*?<\s*/\s*scratchpad\s*>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<\s*analysis\s*>.*?<\s*/\s*analysis\s*>", re.DOTALL | re.IGNORECASE),
+    # Forma '>thinking ... <' senza slash (variante osservata in output reali).
+    re.compile(r">\s*thinking\b.*?<", re.DOTALL | re.IGNORECASE),
+)
+
+
+def _strip_inline_reasoning(text):
+    """Rimuove blocchi di reasoning inline dal testo destinato all'utente.
+
+    Ritorna (testo_pulito, rimosso_bool). Non tocca il testo se non trova nulla.
+    """
+    if not isinstance(text, str) or not text:
+        return text, False
+    cleaned = text
+    for pat in _INLINE_REASONING_PATTERNS:
+        cleaned = pat.sub("", cleaned)
+    # Collassa righe vuote residue lasciate dai blocchi rimossi.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, cleaned != text
+
+
+def _collapse_repetition(text, max_phrase_words=12, min_repeats=4, max_collapses=4):
     """Rileva e collassa degenerazioni ripetitive del modello.
 
     Esempio: 'ok let me write ok let me write ok let me write ...' viene ridotto
     a una sola occorrenza, con nota esplicita. Ritorna il testo invariato se non
     rileva alcuna ripetizione anomala.
+
+    Miglioramenti (audit P2):
+    - collassa fino a max_collapses blocchi (non piu' solo il "best"),
+    - riconosce ripetizioni approssimate (deriva/parafrasi) oltre quelle esatte
+      consecutive, tramite una piccola distanza di edit a livello di parola.
     """
+    def _edit_dist_ratio(a, b):
+        hi = max(len(a), len(b))
+        if hi == 0:
+            return 1.0
+        # Semplicissimo Levenshtein su liste; soglia ~30% differenze accettata.
+        dp = list(range(len(b) + 1))
+        for i, ca in enumerate(a, 1):
+            prev = dp[0]
+            dp[0] = i
+            for j, cb in enumerate(b, 1):
+                old = dp[j]
+                dp[j] = min(dp[j] + 1, dp[j - 1] + 1, prev + (ca != cb))
+                prev = old
+        return 1.0 - dp[-1] / hi
+
     if not text:
         return text
-    words = text.split()
-    n = len(words)
+    blocks = text.split()
+    n = len(blocks)
     if n < min_repeats * 2:
         return text
-    best = None  # (punteggio, start, plen, reps)
+    collapses = []      # ogni elemento: (start_word, plen, reps, phrase)
+    skip_until = -1     # per non sovrapporre le aree gia' collassate
     for plen in range(1, max_phrase_words + 1):
         i = 0
         while i + plen <= n:
-            phrase = words[i:i + plen]
+            if i < skip_until:
+                i += 1
+                continue
+            phrase = blocks[i:i + plen]
             reps = 1
             j = i + plen
-            while j + plen <= n and words[j:j + plen] == phrase:
+            while j + plen <= n:
+                window = blocks[j:j + plen]
+                similar = (window == phrase) or (_edit_dist_ratio(window, phrase) >= 0.7)
+                if not similar:
+                    break
                 reps += 1
                 j += plen
+            # un blocco esatto di plen>1 conta come +1 rispetto alle sole
+            # occorrenze singole, per non collassare frasi naturali a bassa rip
             if reps >= min_repeats:
-                score = reps * plen
-                if best is None or score > best[0]:
-                    best = (score, i, plen, reps)
+                collapses.append((i, plen, reps, " ".join(phrase)))
+                skip_until = i + plen * reps
+                i = j
+                continue
             i += 1
-    if not best:
+    if not collapses:
         return text
-    _, start, plen, reps = best
-    phrase = " ".join(words[start:start + plen])
-    collapsed = words[:start] + [phrase] + words[start + plen * reps:]
-    result = " ".join(collapsed)
-    return result + f'\n\n[!] Output degenerato troncato: ripetizione di "{phrase}" x{reps}.'
+    # da quello piu' lungo a piu' corto per non spostare gli indici
+    collapses.sort(key=lambda c: c[0], reverse=True)
+    cuts = 0
+    for start, plen, reps, phrase in collapses:
+        if cuts >= max_collapses:
+            break
+        end = start + plen * reps
+        suffix = blocks[end:]
+        blocks[start:end] = [phrase]
+        blocks = blocks[:start + 1] + suffix
+        cuts += 1
+    result = " ".join(blocks)
+    # Nota senza ripetere la frase collassata (evita di reintrodurre testo
+    # ripetuto nell'output e di sporcare eventuali conteggi a valle).
+    notes = "".join(
+        f"\n[!] Blocco degenerato compattato x{re} ({plen} parole)."
+        for _, plen, re, _ph in collapses[:cuts])
+    return result + notes
+
+
+# --- Cache del system prompt fisso (audit: overhead ricostruito ogni chiamata) ---
+_STATIC_PROMPT_CACHE = {"signature": None, "builder": None, "text": ""}
+
+
+def _system_prompt_static():
+    """Parte invariabile del system prompt: regole + bootstrap + knowledge hint.
+
+    Viene ricostruita solo se cambia la firma dei file di contesto
+    (identity.md, state.md, .selfmap.json) o se il builder viene sostituito
+    (monkeypatch nei test). Elimina il costo fisso per ogni chiamata LLM, che
+    prima rileggeva i file di contesto e riscriveva le viste bootstrap.
+    """
+    builder = _build_grounded_system_prompt
+    signature = None
+    try:
+        from selfmap import context_signature
+        signature = context_signature()
+    except Exception as _signature_error:
+        log_error("bootstrap_signature", _signature_error)
+    cache = _STATIC_PROMPT_CACHE
+    if (signature is not None and cache["text"]
+            and cache["signature"] == signature and cache["builder"] is builder):
+        return cache["text"]
+    text = builder()
+    try:
+        from selfmap import load_bootstrap_context
+        text += "\n\n" + load_bootstrap_context()
+    except Exception as _bootstrap_error:
+        log_error("bootstrap_context", _bootstrap_error)
+    try:
+        from selfmap import knowledge_map_prompt_hint
+        text += "\n\n" + knowledge_map_prompt_hint()
+    except Exception as _hint_error:
+        log_error("knowledge_map_hint", _hint_error)
+    if signature is not None:
+        cache["signature"] = signature
+        cache["builder"] = builder
+        cache["text"] = text
+    return text
+
+
+def _effort_for(messages) -> str:
+    """Sceglie il reasoning_effort in base alla categoria del turno corrente.
+
+    Il P0 dell'audit: l'effort era forzato HIGH su ogni chiamata, scollegato
+    dal router. Un 'ciao' pagava lo stesso reasoning di un refactoring.
+    Solo le categorie che richiedono ragionamento profondo ottengono HIGH;
+    codice e conversazione usano MEDIUM, informativo LOW.
+    """
+    try:
+        from routing_engine import classify_input
+        last_user = next((m.get("content", "") for m in reversed(messages)
+                          if isinstance(m, dict) and m.get("role") == "user"), "")
+        cat, _ = classify_input(last_user)
+        return {"ragionamento": "high", "codice": "medium",
+                "informativo": "low", "conversazione": "medium"}.get(cat, "medium")
+    except Exception:
+        return "medium"  # fallback prudente: mai HIGH per difetto
 
 
 def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
     """
-    Esegue la chiamata partendo dal modello target con reasoning sempre HIGH.
+    Esegue la chiamata partendo dal modello target; il reasoning_effort e'
+    scelto dalla categoria del turno (vedi _effort_for), non piu' fisso HIGH.
     """
     if not primary_model:
         primary_model = MODEL_CONVERSATION
@@ -528,15 +661,9 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
     last_error = ""
 
     # Include sempre il System Prompt e un bootstrap compatto; i dettagli della
-    # selfmap restano on-demand per contenere i token.
-    system_content = _build_grounded_system_prompt()
-    try:
-        from selfmap import load_bootstrap_context
-        system_content += "\n\n" + load_bootstrap_context()
-        from selfmap import knowledge_map_prompt_hint
-        system_content += "\n\n" + knowledge_map_prompt_hint()
-    except Exception as _bootstrap_error:
-        log_error("bootstrap_context", _bootstrap_error)
+    # selfmap restano on-demand per contenere i token. La parte fissa e' in
+    # cache: ricostruita solo quando cambia la firma dei file di contesto.
+    system_content = _system_prompt_static()
     try:
         from routing_engine import answer_format_hint
         last_user = next((m.get("content", "") for m in reversed(messages)
@@ -565,14 +692,17 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
                     "model": attempt_model,
                     "messages": payload_messages,
                 }
-                # Reasoning esplicito e sempre HIGH, come configurato in precedenza.
+                # Reasoning proporzionato alla categoria del turno (P0 audit):
+                # high solo per ragionamento profondo, medium/low per il resto.
                 extra_params = {
                     "temperature": 0.3,
-                    "reasoning_effort": "high",
+                    "reasoning_effort": _effort_for(payload_messages),
                     # Penalita' anti-degenerazione: riducono i loop ripetitivi
-                    # tipo 'ok let me write ok let me write ...' alla fonte.
-                    "frequency_penalty": 0.4,
-                    "presence_penalty": 0.2,
+                    # alla fonte. Valori moderati: a bassa temperatura, penalty
+                    # alte (es. frequency 0.4) spingono un modello debole verso
+                    # loop di sostituzioni strane anziche' curarli (audit P2).
+                    "frequency_penalty": 0.2,
+                    "presence_penalty": 0.15,
                 }
                 kwargs.update(extra_params)
                 if tools_schema:
@@ -601,11 +731,18 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
             # restituirlo, cosi' i loop ripetitivi non raggiungono mai l'utente.
             try:
                 _msg = response.choices[0].message
-                _orig = getattr(_msg, "content", None)
-                if _orig:
+                for _field in ("content", "reasoning_content", "reasoning"):
+                    _orig = getattr(_msg, _field, None)
+                    if not isinstance(_orig, str) or not _orig:
+                        continue
                     _clean = _collapse_repetition(_orig)
+                    # Strip del reasoning inline solo sul testo user-facing.
+                    if _field == "content":
+                        _clean, _stripped = _strip_inline_reasoning(_clean)
+                        if _stripped:
+                            console.print("[dim][!] Reasoning inline rimosso dal contenuto.[/dim]")
                     if _clean != _orig:
-                        _msg.content = _clean
+                        setattr(_msg, _field, _clean)
                         console.print("[dim][!] Output degenerato rilevato e troncato.[/dim]")
             except Exception:
                 pass

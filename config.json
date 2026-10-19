@@ -1,1 +1,4 @@
-﻿{ "api_key": "" }
+﻿{
+    "api_key":  "",
+    "tool_token_budget":  3500000
+}

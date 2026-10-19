@@ -238,6 +238,22 @@ def _context_hash(path):
         return "missing"
 
 
+def context_signature():
+    """Firma economica (mtime, size) dei file che compongono il bootstrap.
+
+    Serve a invalidare la cache del system prompt senza rileggere i contenuti:
+    un cambio di identity.md, state.md o .selfmap.json cambia la firma.
+    """
+    signature = []
+    for path in (IDENTITY_FILE, STATE_FILE, JSON_OUT):
+        try:
+            stat = os.stat(path)
+            signature.append((os.path.basename(path), stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            signature.append((os.path.basename(path), None, None))
+    return tuple(signature)
+
+
 def _bootstrap_data():
     """Costruisce il contesto minimo senza caricare la mappa tecnica completa."""
     return {
@@ -258,8 +274,13 @@ def _bootstrap_data():
     }
 
 
-def refresh_bootstrap():
-    """Genera bootstrap.json e bootstrap.md come viste derivate."""
+def refresh_bootstrap(write=True):
+    """Costruisce il contesto bootstrap; scrive le viste derivate solo se write=True.
+
+    La scrittura su disco e' un effetto collaterale: i chiamanti che leggono il
+    contesto a ogni chiamata LLM (load_bootstrap_context) usano write=False, cosi'
+    il percorso caldo resta in sola lettura.
+    """
     data = _bootstrap_data()
     try:
         with open(JSON_OUT, encoding="utf-8") as stream:
@@ -271,6 +292,8 @@ def refresh_bootstrap():
         }
     except (OSError, ValueError, TypeError):
         pass
+    if not write:
+        return data
     json_text = json.dumps(data, ensure_ascii=False, indent=2)
     md_text = "\n".join([
         "# Astral Bootstrap",
@@ -301,7 +324,7 @@ def refresh_bootstrap():
 def load_bootstrap_context(max_chars=2200):
     """Carica solo identita', stato e contatori della mappa."""
     try:
-        data = refresh_bootstrap()
+        data = refresh_bootstrap(write=False)
     except Exception:
         data = _bootstrap_data()
     text = "\n\n".join([

@@ -235,6 +235,20 @@ def _args_json(args):
         return str(args)
 
 
+def reset_loop_state():
+    """[FIX P1] Azzera lo stato della guardia anti-loop.
+
+    _LOOP_CALLS persisteva a livello di processo per tutta la durata del
+    programma: le chiamate di un turno utente potevano quindi far scattare
+    il blocco anti-loop (streak/near-duplicate/pattern) su un turno SUCCESSIVO
+    del tutto indipendente, anche quando la lettura era legittima.
+    Viene invocata all'inizio di ogni nuovo turno utente per garantire che la
+    guardia valuti SOLO le chiamate del turno corrente.
+    """
+    with _LOOP_LOCK:
+        _LOOP_CALLS.clear()
+
+
 def _loop_guard(name, args):
     """[FIX G13 + hardening] Guardia anti-loop a livello gateway.
 
@@ -397,11 +411,10 @@ def _h_ask_user_question(args):
             labels.append(label)
         try:
             import sys_notify as _sysn
-            # force=True: la console resta BLOCCATA in attesa della risposta,
-            # quindi il toast deve partire anche se la finestra di Astral ha il
-            # focus (l'utente puo' essere lontano dalla tastiera).
+            # Nessun force: vale il gate di focus di sys_notify, quindi il
+            # toast parte solo se la finestra di Astral NON e' in primo piano.
             _sysn.notify("Astral - Serve una scelta",
-                         f"{header}: {question}", kind="ask_user", force=True)
+                         f"{header}: {question}", kind="ask_user")
         except Exception:
             pass
         console.print(f"\n[bold cyan]{escape(header)}[/]  {escape(question)}")

@@ -263,6 +263,8 @@ def _notify_turn_done(messages, elapsed_s):
         summary = _plain_summary(text)
         if summary:
             summary = f"{int(elapsed_s)}s - {summary}"
+        else:
+            summary = f"Ragionamento completato in {int(elapsed_s)}s."
         return _sys_notify("Astral - tocca a te", summary, kind="turn_done")
     except Exception:
         return False
@@ -400,7 +402,7 @@ def _parse_verdict_request(text):
             rest = match.group(1).strip()
     tokens = rest.split(None, 1)
     profilo = "standard"
-    if tokens and tokens[0].lower() in ("lite", "--lite"):
+    if tokens and tokens[0].lower().strip(",;:.!") in ("lite", "--lite"):
         profilo = "lite"
         rest = tokens[1].strip() if len(tokens) > 1 else ""
     # Forme naturali comuni: "verdetto su ...", "verdetto: ...".
@@ -819,6 +821,11 @@ def main():
             if lower_input == '/clear':
                 checkpoint_save(messages)
                 clear_persistent_history()
+                # Azzera anche lo stato di sessione del trimmer: senza questo
+                # l'obiettivo globale restava in memoria e ricompariva nel
+                # primo checkpoint dopo la pulizia.
+                import astral_trim as _at
+                _at.reset_session_state()
                 messages = []
                 session_first_msg = True
                 console.print("[dim][*] Sessione ripulita.[/dim]")
@@ -1285,7 +1292,15 @@ def main():
                     })
                 session_first_msg = False
             messages.append({"role": "user", "content": user_input})
-            
+
+            # [FIX P1] Reset dello stato anti-loop del gateway all'inizio di ogni
+            # turno utente: la guardia deve valutare solo le chiamate del turno
+            # corrente, non trascinare lo storico tra richieste indipendenti.
+            try:
+                gateway.reset_loop_state()
+            except Exception:
+                pass
+
             # Live Sliding Window respiratorio: finestra sinusoidale + ledger (v2)
             messages = safe_trim_context(messages)
             if last_meta.get("event") == "consolidate":
@@ -1568,12 +1583,11 @@ def main():
             else:
                 final_text = (msg.content or "").strip()
             if not final_text:
-                # Fallback: alcuni modelli mettono il testo in reasoning_content.
-                # NON riversare la catena di pensieri grezza come risposta visibile:
-                # se e' lunga (tipico CoT) la scarto, altrimenti la uso come risposta.
-                _reason = (getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or "").strip()
-                if _reason and len(_reason) <= 600:
-                    final_text = _reason
+                # P0 audit: il ragionamento interno NON va mai mostrato come
+                # risposta. Il vecchio fallback (<600 char) esponeva frammenti
+                # di catena-di-pensieri all'utente. Ora si ignora del tutto e
+                # si lascia che il messaggio neutro sotto gestisca il caso.
+                pass
             if not final_text and tool_followup_error:
                 final_text = (
                     "La fase strumenti e' terminata, ma non e' stato possibile generare "

@@ -363,7 +363,18 @@ def _tool_phase(context=None) -> str | None:
     informazione il router puo' riclassificare erroneamente una modifica al
     codice come semplice conversazione e mantenere DeepSeek per tutti i follow-up.
     """
-    for message in context or []:
+    # P0 audit: la fase operativa vale SOLO per il turno corrente. Scansionare
+    # l'intera cronologia faceva si' che una vecchia patch contaminasse il
+    # routing di un nuovo 'ciao, come stai?'. Si parte dall'ultimo messaggio
+    # utente in poi (il lavoro gia' iniziato nel turno attuale).
+    msgs = list(context or [])
+    start = 0
+    for i in range(len(msgs) - 1, -1, -1):
+        m = msgs[i]
+        if isinstance(m, dict) and m.get("role") == "user":
+            start = i + 1
+            break
+    for message in msgs[start:]:
         if not isinstance(message, dict):
             continue
         for tool_call in message.get("tool_calls") or []:

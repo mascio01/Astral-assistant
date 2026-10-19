@@ -316,6 +316,53 @@ def test_harvest_facts_estrae_bullet_e_obiettivo():
         assert T._ledger_total(ledger) >= 3
 
 
+def test_harvest_facts_non_perpetua_errori_da_tool_falliti():
+    """Punto 7a (audit): un blocco con tool fallito NON deposita come 'fatti'
+    le dichiarazioni dell'assistant; le registra come aperte/non confermate."""
+    with Patcher() as p:
+        p.set(T, "_SESSION_GOAL", None)
+        ledger = {k: [] for k in T.CP_SECTIONS}
+        blocco = [
+            {"role": "assistant", "content": "Ho applicato la patch e tutto e' a posto.",
+             "tool_calls": [{"id": "c1", "type": "function",
+                             "function": {"name": "apply_code_patch", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1",
+             "content": json.dumps({"error": "patch fallita: blocco non trovato"})},
+        ]
+        T._harvest_facts(ledger, [blocco])
+    tutti = [f for v in ledger.values() for f in v]
+    assert not any("a posto" in f for f in tutti), tutti
+    assert any(f.startswith("Tool fallito") for f in ledger["APERTI"]), ledger
+    assert any("blocco non trovato" in f for f in ledger["APERTI"]), ledger
+
+
+def test_harvest_facts_tiene_quando_i_tool_riescono():
+    """Controprova: blocco con tool riuscito -> il fatto viene registrato."""
+    with Patcher() as p:
+        p.set(T, "_SESSION_GOAL", None)
+        ledger = {k: [] for k in T.CP_SECTIONS}
+        blocco = [
+            {"role": "assistant", "content": "Creato il file di report.",
+             "tool_calls": [{"id": "c1", "type": "function",
+                             "function": {"name": "apply_code_patch", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1",
+             "content": json.dumps({"stdout": "ok", "status": "ok"})},
+        ]
+        T._harvest_facts(ledger, [blocco])
+    tutti = [f for v in ledger.values() for f in v]
+    assert any("report" in f for f in tutti), tutti
+
+
+def test_reset_session_state_azzera_obiettivo():
+    """Punto 7b (audit): /clear deve azzerare obiettivo e stato respiratorio."""
+    with Patcher() as p:
+        p.set(T, "_SESSION_GOAL", "obiettivo vecchio")
+        p.set(T, "_TURNS_SEEN", 5)
+        T.reset_session_state()
+        assert T._SESSION_GOAL is None
+        assert T._TURNS_SEEN == 0
+
+
 def test_harvest_facts_salta_i_checkpoint():
     ledger = {k: [] for k in T.CP_SECTIONS}
     blocchi = [[{"role": "user", "content": T.CHECKPOINT_HEADER + "\nvecchio"}]]

@@ -12,6 +12,7 @@
 #   - riduzione token >= 30% a budget fisso
 #   - fallback al trimmer storico su qualunque errore (safe_trim_context)
 
+import json
 import math
 import os
 import sys
@@ -54,6 +55,9 @@ _CP_MARKERS = (CHECKPOINT_HEADER, _CP_LEDGER_MARK)
 
 _TURNS_SEEN = 0
 _SESSION_GOAL = None
+# Esiti di tool considerati fallimentari (allineati a tools_gateway:194).
+_TOOL_FAIL_STATUSES = {"fail", "failed", "error", "timeout", "aborted",
+                       "cancelled"}
 last_meta = {"event": "boot", "turn": 0, "cycle": 0, "facts": 0,
              "window": 0, "chars": 0}
 
@@ -143,9 +147,69 @@ def _classify_fact(text):
     return "CONTESTO"
 
 
+def _tool_result_failed(m):
+    """True se un messaggio 'tool' contiene un esito di fallimento."""
+    if _role(m) != "tool":
+        return False
+    raw = m.get("content") if isinstance(m, dict) else None
+    if not raw:
+        return False
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw.strip())
+        except Exception:
+            return False  # offloaded / non-JSON: non assumere fallimento
+    if isinstance(data, dict):
+        if data.get("error"):
+            return True
+        st = str(data.get("status") or data.get("esito") or "").lower()
+        if st in _TOOL_FAIL_STATUSES:
+            return True
+    return False
+
+
+def _block_failed(block):
+    """True se il blocco atomico contiene almeno un tool fallito."""
+    return any(_tool_result_failed(m) for m in block if isinstance(m, dict))
+
+
+def _tool_error_text(m):
+    """Testo dell'errore di un tool fallito, o None."""
+    if _role(m) != "tool":
+        return None
+    raw = m.get("content") if isinstance(m, dict) else None
+    if not raw:
+        return None
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw.strip())
+        except Exception:
+            return None
+    if isinstance(data, dict):
+        err = data.get("error")
+        if err:
+            return str(err)
+        st = str(data.get("status") or data.get("esito") or "").lower()
+        if st in _TOOL_FAIL_STATUSES:
+            return "%s %s" % (st, data.get("stdout") or data.get("stderr") or "")
+    return None
+
+
 def _harvest_facts(ledger, blocks_msgs):
     global _SESSION_GOAL
     for blk in blocks_msgs:
+        # Un blocco con tool falliti NON deve depositare come 'fatti' le
+        # dichiarazioni dell'assistant: la memoria non deve perpetuare errori.
+        failed = _block_failed(blk)
+        if failed:
+            for m in blk:
+                err = _tool_error_text(m) if isinstance(m, dict) else None
+                if err:
+                    _ledger_add(ledger, "APERTI",
+                                "Tool fallito: " + err[:CP_LINE_CAP])
+            continue
         for m in blk:
             if not isinstance(m, dict):
                 continue
@@ -159,6 +223,11 @@ def _harvest_facts(ledger, blocks_msgs):
                     _SESSION_GOAL = first
                 _ledger_add(ledger, "CONTESTO", "U: " + first)
             elif r == "assistant":
+                if failed:
+                    # Azione rivendicata ma NON confermata dai tool: non
+                    # ri-iniettiamo l'affermazione (perpetuerebbe l'errore),
+                    # registriamo invece l'errore reale come punto aperto.
+                    continue
                 bullets = [l.strip() for l in txt.splitlines()
                            if l.strip().startswith(("- ", "* ", "\u2022 "))][:3]
                 if bullets:
@@ -167,6 +236,15 @@ def _harvest_facts(ledger, blocks_msgs):
                                     b.lstrip("-*\u2022 ").strip()[:CP_LINE_CAP])
                 else:
                     _ledger_add(ledger, _classify_fact(first), "A: " + first)
+
+
+def reset_session_state():
+    """Azzera lo stato di sessione del trimmer: obiettivo globale e
+    contatore dei turni respiratori. Da chiamare quando la cronologia viene
+    ripulita (/clear) per non far ricomparire l'obiettivo precedente."""
+    global _TURNS_SEEN, _SESSION_GOAL
+    _TURNS_SEEN = 0
+    _SESSION_GOAL = None
 
 
 def _ledger_total(ledger):
@@ -252,15 +330,24 @@ def breathing_trim(messages, turn=None):
     if _ledger_total(ledger) or _SESSION_GOAL:
         result.append({"role": "user", "content": _checkpoint_message(cp_text)})
 
+    # P0 audit: l'ultimo messaggio utente (la richiesta corrente) non va mai
+    # troncato a MAX_CONTENT_CHARS; una domanda lunga con l'istruzione finale
+    # perdeva proprio la parte da eseguire.
+    _last_user_idx = max((i for i, mm in enumerate(messages)
+                          if isinstance(mm, dict) and mm.get("role") == "user"),
+                         default=-1)
+
     def assemble(window_, budget_):
         t2 = select_tail(conv2, window_)
         sel = []
         for s, e, _ in t2:
             blk = []
-            for m in messages[s:e]:
+            for i in range(s, e):
+                m = messages[i]
                 if isinstance(m, dict) and m.get("content"):
-                    m = dict(m)
-                    m["content"] = _truncate(m["content"], MAX_CONTENT_CHARS)
+                    if i != _last_user_idx:
+                        m = dict(m)
+                        m["content"] = _truncate(m["content"], MAX_CONTENT_CHARS)
                 blk.append(m)
             sel.append(blk)
         eff = max(500, budget_ - len(cp_text))
@@ -423,13 +510,19 @@ def trim_context(messages, max_turns=6, with_summary=True,
             cp_text = CHECKPOINT_HEADER + "\n" + "\n".join(parts[-CHECKPOINT_MAX_ITEMS:])
             result.append({"role": "user", "content": cp_text})
 
+    # P0 audit: anche nel trimmer v1 la richiesta corrente resta integra.
+    _last_user_idx_v1 = max((i for i, mm in enumerate(messages)
+                             if isinstance(mm, dict) and mm.get("role") == "user"),
+                            default=-1)
     sel = []
     for s, e, _ in tail:
         blk = []
-        for m in messages[s:e]:
+        for i in range(s, e):
+            m = messages[i]
             if isinstance(m, dict) and m.get("content"):
-                m = dict(m)
-                m["content"] = _truncate(m["content"], MAX_CONTENT_CHARS)
+                if i != _last_user_idx_v1:
+                    m = dict(m)
+                    m["content"] = _truncate(m["content"], MAX_CONTENT_CHARS)
             blk.append(m)
         sel.append(blk)
     # il budget vale per la coda: il checkpoint consuma il suo margine

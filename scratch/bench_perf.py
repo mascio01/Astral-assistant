@@ -1,6 +1,8 @@
-﻿import time, json
+﻿import time, json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tools_exec import execute_tool
 from exec_logger import read_executions
+from core_io import BASE_DIR
 
 latenze = []
 for i in range(5):
