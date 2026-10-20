@@ -190,16 +190,20 @@ def _lights_notify(kind):
             pass
 
 
-def _sys_notify(title, message, kind="info"):
+def _sys_notify(title, message, kind="info", force=False):
     """Notifica di sistema best-effort su avvisi importanti.
 
     Delega a sys_notify, che decide se notificare in base al focus: se la
     console di Astral e' in primo piano non arriva nessun disturbo.
     Mai eccezioni: l'assenza di notifiche non deve rompere il REPL.
+
+    Nota: un tempo qui veniva passato play_audio=..., parametro che NON esiste
+    nella firma di sys_notify.notify(): ogni chiamata sollevava TypeError,
+    catturato dal try/except, e nessun toast partiva mai da astral.py.
     """
     try:
         import sys_notify
-        return sys_notify.notify(title, message, kind=kind)
+        return sys_notify.notify(title, message, kind=kind, force=force)
     except Exception:
         return False
 
@@ -848,6 +852,7 @@ def main():
                     f"  [bold cyan]/task-new[/] <id> <titolo>  |  [bold cyan]/task-test[/] <id>  |  [bold cyan]/task-done[/] <id>\n\n"
                     f"[bold]SISTEMA[/]\n"
                     f"  [bold cyan]/self[/]        selfmap: [dim]fn|cls|file[/]\n"
+                    f"  [bold cyan]/graphify[/] [dim]<domanda>|update|hubs|explain[/]   knowledge graph\n"
                     f"  [bold cyan]/repair[/]      auto-riparazione  |  [bold cyan]/repair-graph[/]\n"
                     f"  [bold cyan]/telemetry[/]   toggle telemetria  |  [bold cyan]/stats[/]\n\n"
                     f"[bold]STRUMENTI[/]\n"
@@ -926,6 +931,42 @@ def main():
                                 console.print(f"  {_f['signature']} righe {_f['line']}-{_f['end_line']}")
                 except Exception as _e_sm:
                     console.print(ui_error(f"[!] /self error: {_e_sm}"))
+                continue
+
+            if lower_input.startswith('/graphify'):
+                # Knowledge graph del codebase: query, aggiornamento, hub, explain.
+                try:
+                    import graphify_bridge as _gb
+                    _gp = lower_input.split(maxsplit=2)
+                    if not _gb.available():
+                        console.print(ui_error("[!] graphify non installato (pip install graphifyy)."))
+                    elif len(_gp) == 1:
+                        _gi = _gb.info()
+                        console.print(f"[bold cyan]Graphify[/] v{_gi.get('installed_version')} \u00b7 "
+                                      f"{_gi.get('nodes', 0)} nodi \u00b7 {_gi.get('links', 0)} edge \u00b7 "
+                                      f"gen {_gi.get('mtime_iso')}")
+                        console.print("[dim]uso: /graphify <domanda> | update | hubs | explain <nodo>[/dim]")
+                    elif _gp[1] == 'update':
+                        console.print("[dim][*] Aggiorno il knowledge graph...[/dim]")
+                        _gu = _gb.update(force=True)
+                        console.print(f"[dim]   ok={_gu.get('ok')} nodi {_gu.get('nodes_before')}->"
+                                      f"{_gu.get('nodes_after')} in {_gu.get('duration_s')}s[/dim]")
+                    elif _gp[1] == 'hubs':
+                        _gh = _gb.god_nodes(top=15)
+                        _ht = Table(title="Hub architetturali (graphify)")
+                        for _c in ("Nodo", "Grado"):
+                            _ht.add_column(_c, justify="left" if _c == "Nodo" else "right")
+                        for _n in _gh.get("nodes", [])[:15]:
+                            _ht.add_row(str(_n.get("label")), str(_n.get("degree")))
+                        console.print(_ht)
+                    elif _gp[1] == 'explain':
+                        _ge = _gb.explain(_gp[2] if len(_gp) > 2 else '')
+                        console.print(_ge.get("text") or _ge.get("error", ""))
+                    else:
+                        _gq = _gb.query(_gp[1] + ((" " + _gp[2]) if len(_gp) > 2 else ''), budget=2000)
+                        console.print(_gq.get("answer") or _gq.get("error", ""))
+                except Exception as _e_gr:
+                    console.print(ui_error(f"[!] /graphify error: {_e_gr}"))
                 continue
 
             if lower_input == '/repair':
@@ -1831,6 +1872,20 @@ if __name__ == "__main__":
         selfmap.start_watcher()  # sincronizzazione continua durante il runtime
     except Exception:
         pass  # mai bloccare l'avvio per la mappa
+    # Knowledge graph del codebase (graphifyy): auto-rigenerazione se stale +
+    # watcher in background. Mai bloccante: qualunque errore e' ignorato.
+    try:
+        import graphify_bridge as _gb
+
+        if _gb.available():
+            _g_res = _gb.ensure_fresh()
+            if not _g_res.get("skipped"):
+                console.print(f"[dim][graph] {'aggiornato' if _g_res.get('ok') else 'errore'}: "
+                              f"nodi={_g_res.get('nodes_after', '?')} "
+                              f"in {_g_res.get('duration_s', '?')}s[/dim]")
+            _gb.start_watcher()  # mantiene il grafo fresco durante il runtime
+    except Exception:
+        pass  # mai bloccare l'avvio per il grafo
     # Skill ECC: vendorizzate on-demand, non versionate. Al primo avvio (cartella
     # assente) si chiede se scaricarle. Mai bloccante: qualunque errore e' ignorato.
     try:

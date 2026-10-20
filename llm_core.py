@@ -847,6 +847,15 @@ def repair_watchdog():
                         pass
                     if ("VERDICT_DONE" not in content) and (age > STALL_TIMEOUT):
                         safe_print("[watchdog] Verdetto in stalla (>600s senza VERDICT_DONE): kill orfano + pulizia...")
+                        try:
+                            import sys_notify as _sysn
+                            _sysn.notify(
+                                "Astral - Watchdog",
+                                "Verdetto in stalla (>600s senza VERDICT_DONE): runner orfano terminato e file ripuliti.",
+                                kind="watchdog",
+                            )
+                        except Exception:
+                            pass
                         subprocess.run(
                             ["powershell", "-NoProfile", "-Command",
                              "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
@@ -875,6 +884,15 @@ def repair_watchdog():
                         last_seen = cand
                         last_repair = time.time()
                         safe_print("[watchdog] Nuovo errore nel log: avvio self-repair in console separata...")
+                        try:
+                            import sys_notify as _sysn
+                            _sysn.notify(
+                                "Astral - Watchdog",
+                                "Nuovo errore rilevato nel log: avvio self-repair automatico.",
+                                kind="watchdog",
+                            )
+                        except Exception:
+                            pass
                         subprocess.Popen(
                             [sys.executable, os.path.join(BASE_DIR, "repair_loop.py"), "--from-log"],
                             cwd=BASE_DIR,

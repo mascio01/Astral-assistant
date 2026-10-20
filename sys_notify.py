@@ -307,6 +307,41 @@ def _debounced(key, force=False):
         return False
 
 
+def play_sound(kind="turn_done"):
+    """Riproduce un suono di sistema Windows (best-effort, mai eccezioni).
+
+    Usa i suoni di sistema (System.Media.SystemSounds) tramite PowerShell:
+    sono affidabili anche quando la console non e' in primo piano, a
+    differenza del beep della console. Non blocca il REPL: invio in thread
+    daemon. Fuori da Windows: no-op silenzioso.
+
+    Ritorna True se il comando e' stato lanciato senza errori.
+    """
+    if not IS_WINDOWS:
+        return False
+    # Suoni di sistema: Exclamation + Asterisk (confermati dall'utente).
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "[System.Media.SystemSounds]::Exclamation.Play(); "
+        "Start-Sleep -Milliseconds 350; "
+        "[System.Media.SystemSounds]::Asterisk.Play()"
+    )
+    try:
+        flags = 0x08000000  # CREATE_NO_WINDOW
+        th = threading.Thread(
+            target=lambda: subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                capture_output=True, text=True, timeout=PS_TIMEOUT_S,
+                creationflags=flags,
+            ),
+            daemon=True,
+        )
+        th.start()
+        return True
+    except Exception:
+        return False
+
+
 def notify(title, message, kind="info", force=False):
     """Mostra una notifica di sistema se Astral non ha il focus.
 
@@ -315,6 +350,10 @@ def notify(title, message, kind="info", force=False):
         message: corpo, troncato a _MSG_CAP caratteri.
         kind:    etichetta libera, usata solo per il debounce interno.
         force:   se True salta il controllo di focus (uso diagnostico/test).
+
+    Comportamento audio: il toast (con suono di sistema) parte SOLO quando
+    Astral NON e' in primo piano. Se l'utente sta guardando la sessione
+    corrente, nessun toast e nessun suono.
 
     Ritorna True se il toast e' stato effettivamente inviato.
     """

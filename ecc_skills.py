@@ -243,6 +243,61 @@ def load(name, max_chars=MAX_BODY_CHARS):
     }
 
 
+def _slug(name):
+    """Normalizza un nome in slug sicuro per filesystem (a-z0-9 e trattini)."""
+    s = re.sub(r"[^a-z0-9]+", "-", _fold(name or "")).strip("-")
+    return s
+
+
+def create(name, description="", body="", kind="skill", overwrite=False):
+    """Crea una nuova skill/agente scrivendo il file Markdown con frontmatter.
+
+    kind='skill' -> ecc_skills/skills/<slug>/SKILL.md
+    kind='agent' -> ecc_skills/agents/<slug>.md
+    Rifiuta di sovrascrivere se il file esiste (salvo overwrite=True).
+    Dopo la scrittura invalida e ricostruisce l'indice: la nuova entry e'
+    subito visibile via search()/load().
+    """
+    slug = _slug(name)
+    if not slug:
+        return {"error": "Serve un 'name' valido (lettere/numeri)."}
+    desc = (description or "").strip()
+    text = (body or "").strip()
+    if not desc and not text:
+        return {"error": "Serve almeno 'description' o 'body'."}
+
+    if kind == "agent":
+        target_dir = _AGENTS_DIR
+        path = os.path.join(_AGENTS_DIR, slug + ".md")
+        rel = "agents/%s.md" % slug
+        kind = "agent"
+    else:
+        target_dir = os.path.join(_SKILLS_DIR, slug)
+        path = os.path.join(target_dir, "SKILL.md")
+        rel = "skills/%s/SKILL.md" % slug
+        kind = "skill"
+
+    if os.path.exists(path) and not overwrite:
+        return {"error": "Esiste gia': %s" % rel,
+                "hint": "Usa overwrite=true per sostituirla."}
+
+    fm_desc = desc.replace("\r", " ").replace("\n", " ").strip()
+    content = "---\nname: %s\ndescription: %s\n---\n\n%s\n" % (
+        slug, fm_desc, text or ("# %s\n" % slug))
+
+    try:
+        if not os.path.isdir(target_dir):
+            os.makedirs(target_dir)
+        with io.open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        return {"error": "Scrittura fallita: %s" % e}
+
+    build_index(force=True)
+    return {"status": "created", "id": slug, "kind": kind,
+            "path": rel, "chars": len(content)}
+
+
 # --- Autoselezione progressiva (fedele al modello ECC) ------------------------
 #
 # ECC non ha un motore di keyword: la scelta della skill e' del modello, guidata
