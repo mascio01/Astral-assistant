@@ -35,9 +35,14 @@ def get_service(account_hint=None):
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     if not creds or not creds.valid:
+        refreshed = False
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+                refreshed = True
+            except Exception as e:
+                print(f"[!] Refresh token non valido ({e}); avvio autenticazione interattiva.")
+        if not refreshed:
             flow = InstalledAppFlow.from_client_secrets_file(CREDS, SCOPES)
             creds = flow.run_local_server(port=0)
         with open(token_path, "w", encoding="utf-8") as f:
