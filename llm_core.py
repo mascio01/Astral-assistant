@@ -649,6 +649,31 @@ def _effort_for(messages) -> str:
         return "medium"  # fallback prudente: mai HIGH per difetto
 
 
+def _log_guard_trigger(model, field, reasons):
+    """[DIAG] Registra ogni scatto della guardia anti-degenerazione.
+
+    Appende una riga event=guard_triggered a logs/loop_diagnostics.jsonl,
+    cosi' si puo' aggregare per modello/provider chi soffre di piu' di
+    loop ripetitivi o reasoning inline. Best-effort: mai propaga eccezioni.
+    """
+    try:
+        import datetime as _dt
+        log_dir = os.path.join(BASE_DIR, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        entry = {
+            "ts": _dt.datetime.now().isoformat(timespec="seconds"),
+            "event": "guard_triggered",
+            "model": str(model),
+            "field": field,
+            "reasons": reasons,
+        }
+        with open(os.path.join(log_dir, "loop_diagnostics.jsonl"), "a",
+                  encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
     """
     Esegue la chiamata partendo dal modello target; il reasoning_effort e'
@@ -748,6 +773,7 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
                             _reasons.append("reasoning inline rimosso")
                     if _clean != _orig:
                         setattr(_msg, _field, _clean)
+                        _log_guard_trigger(attempt_model, _field, _reasons)
                         console.print(f"[dim][!] {_field}: {'; '.join(_reasons)}.[/dim]")
             except Exception:
                 pass
