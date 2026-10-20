@@ -142,3 +142,10 @@ energia/
 
 # Audit di riparazione automatica (log locale, mai versionato)
 .repair_audit.jsonl
+
+# Output generato da graphify (knowledge graph) - MAI versionare
+graphify-out/
+# File temporanei di pulizia
+_defs_temp.txt
+_filelist.txt
+filter_rules.txt
