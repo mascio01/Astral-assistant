@@ -735,15 +735,20 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
                     _orig = getattr(_msg, _field, None)
                     if not isinstance(_orig, str) or not _orig:
                         continue
+                    # Traccia le cause di modifica per emettere UN solo avviso
+                    # per campo, invece di due messaggi ridondanti sullo stesso evento.
                     _clean = _collapse_repetition(_orig)
+                    _reasons = []
+                    if _clean != _orig:
+                        _reasons.append("loop ripetitivo compattato")
                     # Strip del reasoning inline solo sul testo user-facing.
                     if _field == "content":
                         _clean, _stripped = _strip_inline_reasoning(_clean)
                         if _stripped:
-                            console.print("[dim][!] Reasoning inline rimosso dal contenuto.[/dim]")
+                            _reasons.append("reasoning inline rimosso")
                     if _clean != _orig:
                         setattr(_msg, _field, _clean)
-                        console.print("[dim][!] Output degenerato rilevato e troncato.[/dim]")
+                        console.print(f"[dim][!] {_field}: {'; '.join(_reasons)}.[/dim]")
             except Exception:
                 pass
             if attempt_model != primary_model:
