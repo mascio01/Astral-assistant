@@ -1,6 +1,6 @@
 ﻿# Astral Assistant
 
-**Astral** is an autonomous, self-aware AI assistant for Windows 11, written in Python. It runs as a local console application that combines an LLM conversation core with a rich set of OS-level tools (PowerShell, file system, web scraping), persistent memory, a model-routing engine, self-repair capabilities, a "council of judges" verdict system, detached subagents, and local voice input/output.
+**Astral** is an autonomous, self-aware AI assistant for Windows 11, written in Python. It runs as a local console application that combines an LLM conversation core with a rich set of OS-level tools (PowerShell, file system, web scraping), persistent memory, a model-routing engine, self-repair capabilities, a "council of judges" verdict system, detached subagents, and local voice input/output. It also builds a local **knowledge graph** of its own codebase (Graphify) for structure and impact queries.
 
 > Astral is designed to **operate on its own machine**: it can read and modify its own source code, patch itself atomically, test itself, and keep a live semantic map of its codebase (`.selfmap.json` / `.selfmap.md`).
 
@@ -14,6 +14,7 @@
   - [Core Modules](#core-modules)
   - [Memory & Persistence](#memory--persistence)
   - [Tools Layer](#tools-layer)
+  - [Knowledge Graph (graphify)](#knowledge-graph-graphify)
   - [Routing Engine](#routing-engine)
   - [Self-Repair & Self-Awareness](#self-repair--self-awareness)
   - [Verdict (Council of Judges)](#verdict-council-of-judges)
@@ -37,7 +38,7 @@
 6. **Quality control** — a "verdict" pipeline where a council of judge models reviews answers/code before it is accepted.
 7. **Voice** — local speech-to-text via whisper.cpp (no cloud APIs) and console voice-state feedback.
 8. **Git-native task tracking** — every commit must carry a task ID; a local registry reconciles task state from git history and, crucially, verifies test outcomes instead of trusting declarations.
-
+9. **Knowledge graph** — a local, queryable semantic graph of its own codebase (via Graphify), used for structure/dependency/impact queries without reading whole files.
 ---
 
 ## Architecture Overview
@@ -101,6 +102,18 @@ Supporting subsystems: `repair_loop.py` (self-repair), `verdict/` (council of ju
 | **`tools_exec.py`** | Executes PowerShell commands locally, runs Python files, and applies code patches. |
 | **`tools_patch.py`** | Atomic search/replace code patching: a patch either applies fully or not at all (no partial writes). |
 | **`tools_scrape.py`** | Self-contained web scraper: fetches URLs, respects `robots.txt`, caches results (`scrape_cache/`), extracts main content as markdown, links and JSON-LD. |
+| **`graphify_bridge.py`** | Bridge to the `graphifyy` PyPI package: maintains a queryable knowledge graph of the codebase (AST-based, no LLM). Abstracts subprocess, staleness checks and auto-regeneration via `python -m graphify`. Public API: `available()`, `info()`, `needs_update()`, `update()`, `query()`, `explain()`, `god_nodes()`, `path()`, `affected()`, `ensure_fresh()`, `start_watcher()`. |
+
+### Knowledge Graph (graphify)
+
+Astral integrates **Graphify** to build a queryable semantic graph of its own codebase. The graph is extracted locally from source (AST, no LLM calls) and stored under `graphify-out/`. It powers self-awareness queries (structure, dependencies, impact analysis) while saving tokens versus reading whole files.
+
+| File | Role |
+|---|---|
+| `graphify-out/graph.json` | The generated knowledge graph (nodes, edges, labels). |
+| `graphify-out/graph.html`, `GRAPH_REPORT.md`, `manifest.json` | Human-readable graph view, build report and package manifest. |
+| `graphify-out/.graphify_analysis.json`, `.graphify_build.json`, `.graphify_labels.json` | Graphify runtime metadata (build time, labels). |
+| `g_pyproject.toml` / `g_readme.md` | Graphify package manifest and upstream documentation (reference only). |
 
 ### Self-Repair & Self-Awareness
 
@@ -180,6 +193,7 @@ These are generated at runtime and should **not** be committed or edited by hand
 | `identity.md` / `state.md` | Stable identity and current operational state (hand-editable). |
 | `chat_history_*.json` | Per-session conversation history. |
 | `recall.db`, `memory_meta.db`, `checkpoints.db`, `telemetry.db`, `config.db` | SQLite stores for memory, checkpoints, telemetry and config. |
+| `graphify-out/` | Generated knowledge-graph data (runtime; re-extracted automatically by `graphify_bridge`). |
 | `.env` | Your API key (never commit it — see `.env.example`). |
 
 ---
