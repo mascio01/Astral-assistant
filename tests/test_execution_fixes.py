@@ -235,7 +235,9 @@ def test_g18_successo_scive_verdict_done():
 
 # ------------------------------------------------------------------ G19 ---
 def test_g19_taskkill_fallito_non_dichiarato_riuscito():
-    src = open(os.path.join(_ROOT_BOOT, "astral.py"), encoding="utf-8").read()
+    # [P1 audit azione ciclo1] Il ciclo di vita del driver CUA e' stato estratto
+    # in core/session_manager.py: il fix G19 vive li'.
+    src = open(os.path.join(_ROOT_BOOT, "core", "session_manager.py"), encoding="utf-8").read()
     assert "taskkill fallito" in src
     assert "res.returncode != 0" in src
 
