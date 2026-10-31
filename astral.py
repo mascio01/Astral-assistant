@@ -111,24 +111,12 @@ def _get_tool_round_limit(key, default, aliases=()):
 
 
 def _get_tool_token_budget():
-    """Budget token cumulati per turno (config 'tool_token_budget', default 3M; 0=illimitato)."""
-    try:
-        raw = get_config("tool_token_budget", None)
-        if raw is None:
-            # Fallback: config.json (get_config legge solo da config.db)
-            try:
-                if os.path.exists(CONFIG_FILE):
-                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                        raw = json.load(f).get("tool_token_budget")
-            except Exception:
-                raw = None
-        if raw is not None:
-            val = int(str(raw).strip())
-            if val >= 0:
-                return val
-    except Exception:
-        pass
-    return _TOOL_TOKEN_BUDGET_DEFAULT
+    """Budget token cumulati per turno (config 'tool_token_budget', default 3M; 0=illimitato).
+
+    [P0-2 audit azione ciclo1] Nessuna lettura diretta di config.json: la
+    migrazione lazy dal file legacy e' responsabilita' di core.config_store.
+    """
+    return get_int("tool_token_budget", _TOOL_TOKEN_BUDGET_DEFAULT)
 
 
 def _get_tool_round_cap():
@@ -282,10 +270,10 @@ def _notify_turn_done(messages, elapsed_s):
         return False
 
 from core.memory_store import checkpoint_pull, checkpoint_save, get_config, init_db
+from core.config_store import get_int, get_value, set_value
 from core.memory_meta import bootstrap_meta, record_usage
 from utils.price_map import all_prices, cost_usd
 from core.history_store import (
-    CONFIG_FILE,
     clear_persistent_history,
     compact_history_with_summary,
     get_history,
@@ -734,17 +722,17 @@ def main():
     except Exception:
         pass
     
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-                if "models" in cfg:
-                    MODELS.update(cfg["models"])
-                if "current_model" in cfg and cfg["current_model"]:
-                    val = cfg["current_model"]
-                    set_current_model(MODELS.get(val, val))
-        except Exception:
-            pass
+    # [P0-2 audit azione ciclo1] Lettura via adapter unico (config.db SSOT,
+    # migrazione lazy dal config.json legacy). Nessun accesso diretto al file.
+    try:
+        _cfg_models = get_value("models", None)
+        if isinstance(_cfg_models, dict) and _cfg_models:
+            MODELS.update(_cfg_models)
+        _cfg_model = get_value("current_model", None)
+        if _cfg_model:
+            set_current_model(MODELS.get(_cfg_model, _cfg_model))
+    except Exception as _cfg_e:
+        log_error("load_config_startup", _cfg_e)
 
     console.print(ui_banner(
         body=(
@@ -1287,13 +1275,9 @@ def main():
                     set_current_model(target)
                 
                 try:
-                    cfg_data = {}
-                    if os.path.exists(CONFIG_FILE):
-                        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                            cfg_data = json.load(f)
-                    cfg_data["current_model"] = get_current_model()
-                    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                        json.dump(cfg_data, f, indent=4)
+                    # [P0-2 audit azione ciclo1] Scrittura su config.db via adapter.
+                    if not set_value("current_model", get_current_model()):
+                        raise RuntimeError("set_value('current_model') ha restituito False")
                 except Exception as _cfg_e:
                     # [FIX G09] Errore NON silenzioso: se il salvataggio fallisce
                     # l'utente crederebbe il modello persistito quando non lo e'.

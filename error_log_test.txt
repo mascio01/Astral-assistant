@@ -1064,3 +1064,137 @@ Traceback (most recent call last):
     raise RuntimeError("selfmap non disponibile")
 RuntimeError: selfmap non disponibile
 --------------------------------------------------
+[2026-10-31 15:10:35] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\utils\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 15:10:36] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 15:10:36] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] set_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 189, in set_config
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] get_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 176, in get_config
+    row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] get_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 176, in get_config
+    row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] get_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 176, in get_config
+    row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] get_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 176, in get_config
+    row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] set_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 189, in set_config
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] get_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 176, in get_config
+    row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] set_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 189, in set_config
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] set_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 189, in set_config
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] set_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 189, in set_config
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] set_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 189, in set_config
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:11:27] ERROR ([TEST] get_config): no such table: config
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\core\memory_store.py", line 176, in get_config
+    row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: config
+--------------------------------------------------
+[2026-10-31 15:12:01] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\utils\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 15:12:01] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 15:12:01] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------

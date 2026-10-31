@@ -14,6 +14,29 @@ CONFIG_DB = os.path.join(BASE_DIR, "config.db")
 RECALL_MAX_ENTRIES = 200
 RECALL_RETENTION_DAYS = 30
 RECALL_MIN_BYTES = 500
+
+# [P0-1 audit azione ciclo1] config.db e' l'SSOT della configurazione ed e'
+# soggetto a letture concorrenti (astral.py, history_store, tool). Senza WAL
+# ogni lettore blocca lo scrittore e viceversa: da qui i lock intermittenti.
+CONFIG_DB_TIMEOUT = 5.0
+_WAL_READY = set()
+
+
+def _connect_config():
+    """Connessione a config.db con timeout di lock e journal_mode=WAL.
+
+    Il PRAGMA e' persistente sul file, ma viene riapplicato a ogni nuova
+    connessione solo la prima volta per processo (idempotente e a costo zero).
+    """
+    conn = sqlite3.connect(CONFIG_DB, timeout=CONFIG_DB_TIMEOUT)
+    if CONFIG_DB not in _WAL_READY:
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            _WAL_READY.add(CONFIG_DB)
+        except Exception as e:  # pragma: no cover - non deve mai bloccare la lettura
+            log_error("config_wal", e)
+    return conn
 def recall_save(output, force=False):
     """Salva output completo (gzip) in SQLite content-addressed. Ritorna hash o None.
     Con force=True salva anche sotto la soglia minima (es. errori di comandi falliti)."""
@@ -149,7 +172,7 @@ def checkpoint_pull(prompt):
 def get_config(key, default=None):
     """Legge un valore persistente dalla tabella config. Ritorna default se non esiste."""
     try:
-        conn = sqlite3.connect(CONFIG_DB)
+        conn = _connect_config()
         row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
         conn.close()
         if row:
@@ -162,7 +185,7 @@ def get_config(key, default=None):
 def set_config(key, value):
     """Salva un valore persistente nella tabella config (upsert)."""
     try:
-        conn = sqlite3.connect(CONFIG_DB)
+        conn = _connect_config()
         conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?,?)", (key, str(value)))
         conn.commit()
         conn.close()
@@ -187,7 +210,7 @@ def init_db():
             "model_name TEXT, ts REAL, prompt_tokens INT, completion_tokens INT, total_tokens INT)")
         conn.commit()
         conn.close()
-        conn = sqlite3.connect(CONFIG_DB)
+        conn = _connect_config()
         conn.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)")
         conn.commit()
         conn.close()

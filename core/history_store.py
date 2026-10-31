@@ -15,7 +15,8 @@ SESSION_ID = os.environ.get("ASTRAL_SESSION_ID") or uuid.uuid4().hex[:12]
 HISTORY_DIR = os.path.join(BASE_DIR, "chat_history")
 os.makedirs(HISTORY_DIR, exist_ok=True)
 HISTORY_FILE = os.path.join(HISTORY_DIR, f"chat_history_{SESSION_ID}.json")
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+# [P0-2 audit azione ciclo1] Rimosso CONFIG_FILE: la configurazione passa
+# esclusivamente da core.config_store (config.db come SSOT).
 MAX_DAYS_HISTORY = 14
 MAX_HISTORY_WINDOW_TURNS = 6
 def get_history():
