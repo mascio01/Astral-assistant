@@ -2,9 +2,9 @@
 P3 - price_map.py: tariffe LLM (USD per 1M token) per il report /usage.
 
 Precedenza effettiva di get_price (match per ID ESATTO, case-insensitive):
-  1) prices_override.json  -> sovrascrive le voci della tabella statica
-  2) price_map.PRICES      -> tabella statica di listino
-  3) .or_models_cache.json -> catalogo OpenRouter (prezzi reali $/token)
+  1) prices_override.json  -> override utente, vince su tutto
+  2) .or_models_cache.json -> catalogo OpenRouter (prezzi reali $/token)
+  3) price_map.PRICES      -> tabella statica di listino (solo fallback offline)
 NON si usa il match per sottostringa: un ID parziale non risolve (un catalogo
 per sottostringa farebbe collassare 'deepseek/...-flash' su 'deepseek').
 Il prefisso '~' e il suffisso ':batch' restano significativi: identificano
@@ -22,6 +22,11 @@ _CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".or_mode
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _OVERRIDE_FILE = os.path.join(_DIR, "prices_override.json")
+
+# Il router stima il costo di molti modelli per richiesta. Senza cache, ogni
+# get_price riapriva e riparsava il catalogo OpenRouter (centinaia di KB).
+_CATALOG_CACHE_KEY = None
+_CATALOG_CACHE = {}
 
 # model-id: (prompt USD/1M, completion USD/1M)
 # NB: get_price fa match per ID ESATTO (il catalogo non fa piu' sottostringa),
@@ -60,12 +65,19 @@ PRICES = {
     "grok": (3.00, 15.00),
 }
 
-# Override utente (se presente, caricato all'avvio)
+# Override utente (se presente, caricato all'avvio). Tenuto SEPARATO da
+# PRICES: ha la precedenza su tutto (override > catalogo > tabella statica).
+_OVERRIDES = {}
 try:
     if os.path.exists(_OVERRIDE_FILE):
         with open(_OVERRIDE_FILE, "r", encoding="utf-8") as _f:
             for _k, _v in json.load(_f).items():
-                PRICES[str(_k)] = (float(_v[0]), float(_v[1]))
+                _prezzo = (float(_v[0]), float(_v[1]))
+                _chiave = str(_k).strip().lower()
+                # In PRICES per retrocompatibilita' (all_prices/letture dirette),
+                # in _OVERRIDES perche' deve vincere sul catalogo.
+                PRICES[_chiave] = _prezzo
+                _OVERRIDES[_chiave] = _prezzo
 except Exception:
     pass
 
@@ -75,11 +87,24 @@ def _catalog_prices():
 
     Il catalogo e' la fonte autorevole: non facciamo piu' matching per
     sottostringa, perche' ``deepseek/...-flash`` non equivale a ``deepseek``.
+    La cache in memoria evita di riparsare il file a ogni modello valutato dal
+    router; mtime e dimensione la invalidano quando il catalogo viene aggiornato.
     """
+    global _CATALOG_CACHE_KEY, _CATALOG_CACHE
     try:
-        with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+        path = os.path.abspath(_CACHE_FILE)
+        stat = os.stat(path)
+        cache_key = (path, stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return {}
+
+    if cache_key == _CATALOG_CACHE_KEY:
+        return _CATALOG_CACHE
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return {
+        prices = {
             str(item["id"]).lower(): (
                 float(item["prompt"]) * 1_000_000,
                 float(item["completion"]) * 1_000_000,
@@ -88,6 +113,11 @@ def _catalog_prices():
             if item.get("id") and item.get("prompt") is not None
             and item.get("completion") is not None
         }
+        after = os.stat(path)
+        if (path, after.st_mtime_ns, after.st_size) == cache_key:
+            _CATALOG_CACHE_KEY = cache_key
+            _CATALOG_CACHE = prices
+        return prices
     except (OSError, ValueError, TypeError, KeyError):
         return {}
 
@@ -102,9 +132,12 @@ def get_price(model):
     if not model:
         return None
     m = str(model).strip().lower()
-    if m in PRICES:
-        return PRICES[m]
-    return _catalog_prices().get(m)
+    if m in _OVERRIDES:
+        return _OVERRIDES[m]
+    cat = _catalog_prices().get(m)
+    if cat is not None:
+        return cat
+    return PRICES.get(m)
 
 
 def is_discounted_alias(model):
@@ -123,4 +156,6 @@ def cost_usd(model, prompt_tokens, completion_tokens):
 
 def all_prices():
     """Lista [(match, prompt, completion)] ordinata alfabeticamente."""
-    return sorted((k, v[0], v[1]) for k, v in PRICES.items())
+    merged = dict(PRICES)
+    merged.update(_OVERRIDES)
+    return sorted((k, v[0], v[1]) for k, v in merged.items())

@@ -2,6 +2,12 @@
 # test_task_hook.py - Copertura del dispatcher degli hook git (policy Astral):
 # accettazione/rifiuto dei messaggi, merge e revert esenti, log dei bypass.
 # Standalone ("py test_task_hook.py") e compatibile pytest.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import os
 import sys
 

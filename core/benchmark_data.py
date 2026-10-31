@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # benchmark_data.py - Sorgenti REALI dei punteggi per il routing dinamico.
 #
 # Fonti (verificate 2026-09-14):
@@ -19,7 +19,7 @@
 #   conversazione -> language
 #   ragionamento  -> reasoning  (disponibile per estensioni future)
 # Prezzo: SOLO OpenRouter (scala 0-10, 10 = economico). Affidabilita: IF (LB).
-# Sync (punto 4): thread non bloccante con TTL 24h; file di stato e cache su disco.
+# Sync (punto 4): thread non bloccante con TTL 36h; file di stato e cache su disco.
 
 import csv
 import difflib
@@ -34,29 +34,77 @@ import threading
 import time
 import urllib.request
 
-from core_io import log_error
+from core.core_io import log_error
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Il modulo vive in core/: la root del progetto e' il livello superiore.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(BASE_DIR, ".lb_sync_state.json")
 OR_CACHE = os.path.join(BASE_DIR, ".or_models_cache.json")
 LB_BASE = "https://livebench.ai"
-LB_RELEASES_URL = LB_BASE + "/static/js/main.ac6b12ef.js"
+# Il bundle JS di LiveBench ha un hash nel nome che cambia ad ogni deploy:
+# l'URL viene risolto dinamicamente dalla homepage (fallback: ultimo noto).
+LB_RELEASES_URL_FALLBACK = LB_BASE + "/static/js/main.f4698f08.js"
 OR_MODELS_URL = "https://openrouter.ai/api/v1/models"
-SYNC_TTL = 24 * 3600
+SYNC_TTL = 36 * 3600  # 36 ore per prezzi e LiveBench
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
-# --- Parafrasi categorie: tutte le macro LiveBench -> 3 gruppi di routing ---
+# --- Parafrasi categorie Astral <- macro LiveBench ---------------------------
+# LiveBench cambia le proprie macro ad ogni generazione (v1 aveva language/if,
+# v2 ha research/design/data_analysis/long_agentic/browser). Invece di leggere UNA
+# colonna fissa per categoria (che si rompe quando la colonna sparisce), ogni
+# categoria di routing e' definita come COMPOSIZIONE PESATA delle macro correnti.
+# Le chiavi sono i nomi normalizzati letti da categories.json della release:
+# aggiungere una nuova macro qui basta per farla entrare nei punteggi.
+COMPOSIZIONI_CATEGORIE = {
+    # codice -> coding resta diretto e stabile tra le generazioni.
+    "codice": {"coding": 1.00},
+    # conversazione era language (=qualità linguistica generale): la si ricostruisce
+    # come sintesi informativa/contenutistica/responsive sulle tre nuove dimensioni.
+    "conversazione": {"research": 0.45, "design": 0.30, "data_analysis": 0.25},
+}
+# Categorie che leggono una singola macro reale del benchmark.
+CATEGORIE_MACRO_DIRETTE = {"ragionamento": "reasoning"}
 GRUPPI_ROUTING = ["coding", "language", "reasoning"]
 GROUP_ROUTING = {
     "codice": "coding",
     "conversazione": "language",
     "misto": "reasoning",
     "ragionamento": "reasoning",
-    "matematica": "math",
-    "analisi_dati": "data_analysis",
-    "istruzioni": "if",
 }
+def comporre_macro(lb_scores: dict) -> dict:
+    """Deriva le categorie Astral dalle macro LiveBench disponibili.
+
+    Ritorna {nome_categoria_astral: score 0-10}. Regola scalabile:
+      1. ogni categoria con composizione pesata usa le macro presenti;
+      2. le categorie a macro diretta leggono quella colonna;
+      3. se una macro attesa manca, il peso viene rinormalizzato su quelle
+         presenti (cosi' un cambio di schema non azzera il punteggio).
+    Nessuna dipendenza da nomi di colonna hardcoded fuori da queste tabelle.
+    """
+    lb = lb_scores or {}
+    out = {}
+    for cat, pesi in COMPOSIZIONI_CATEGORIE.items():
+        num = den = 0.0
+        for macro, w in pesi.items():
+            v = lb.get(macro)
+            if v is None:
+                continue
+            num += float(v) * w
+            den += w
+        if den > 0:
+            out[cat] = round(num / den, 2)
+    for cat, macro in CATEGORIE_MACRO_DIRETTE.items():
+        if lb.get(macro) is not None:
+            out[cat] = round(float(lb[macro]), 2)
+    # 'affidabilita' (asse di robustezza/istruzioni): in v1 era la macro 'if',
+    # ora assente. La si approssima con la media delle dimensioni piu' solide e
+    # meno 'creative' disponibili, senza inventare una colonna che non esiste.
+    rif = [lb[k] for k in ("reasoning", "coding", "data_analysis") if lb.get(k) is not None]
+    if rif:
+        out["affidabilita"] = round(sum(rif) / len(rif), 2)
+    return out
+
 
 _state = {}
 _lock = threading.RLock()
@@ -126,16 +174,42 @@ def _lb_files():
     return tabs[-1], cats[-1]
 
 
+def _lb_bundle_url() -> str:
+    """URL del bundle JS corrente: l'hash nel nome cambia ad ogni deploy, quindi
+    lo si risolve dalla homepage e lo si memorizza nello stato (fallback: ultimo
+    noto). Evita il 404 da URL hardcoded obsoleto."""
+    with _lock:
+        cached = _state.get("lb_bundle_url")
+    if cached:
+        return cached
+    page, status = _http_get(LB_BASE + "/", timeout=20)
+    url = None
+    if status == 200 and page:
+        found = re.findall(r'/static/js/main\.[A-Za-z0-9]+\.js', page)
+        if found:
+            url = LB_BASE + found[0]
+    if not url:
+        url = LB_RELEASES_URL_FALLBACK
+    with _lock:
+        _state["lb_bundle_url"] = url
+        try:
+            _write_state()
+        except Exception:
+            pass
+    return url
+
+
 def _last_release():
-    """Release LiveBence corrente: ultimo elemento dell'array di release nel
-    bundle JS. Cache 24h; la release nota resta anche offline."""
+    """Release LiveBench corrente: ultimo elemento dell'array di release nel
+    bundle JS. Cache 36h; la release nota resta anche offline."""
     with _lock:
         last = _state.get("release_checked", 0.0)
-    if time.time() - last < SYNC_TTL:
+    if time.time() - last < SYNC_TTL and _state.get("lb_release_known"):
         return _state.get("lb_release_known")
-    body, status = _http_get(LB_RELEASES_URL)
+    body, status = _http_get(_lb_bundle_url())
     rel = None
     if status == 200 and body:
+        # LiveBench 1.0: array di date ISO ("2024-06-24", ...).
         arrays = re.findall(r"\[(\"20\d{2}-\d{2}-\d{2}\"(?:,\"20\d{2}-\d{2}-\d{2}\")+)\]", body)
         best = None
         for a in arrays:
@@ -144,6 +218,13 @@ def _last_release():
                 best = dates
         if best:
             rel = best[-1]
+        # LiveBench 2.0: array di label compatte ("20261014"). Vince la piu'
+        # recente tra le due generazioni.
+        compact = re.findall(r'\["(20\d{6})"(?:,"20\d{6}")*\]', body)
+        for c in compact:
+            iso = "%s-%s-%s" % (c[:4], c[4:6], c[6:])
+            if rel is None or iso > rel:
+                rel = iso
     with _lock:
         _state["release_checked"] = time.time()
         if rel:
@@ -162,18 +243,34 @@ def _fetch_release(rel: str) -> bool:
     scollamento che rendeva la release scaricata invisibile al lettore.
     """
     d = rel.replace("-", "_")
-    targets = (
-        ("table", "table_%s.csv" % d, ".lb_table_%s.csv" % d),
-        ("categories", "categories_%s.json" % d, ".lb_categories_%s.json" % d),
+    compact = rel.replace("-", "")
+    # LiveBench 2.0 serve i dati da /data/<YYYYMMDD>/{table,categories}.csv|json;
+    # LiveBench 1.0 da /v1/ o dalla root con nome table_<YYYY_MM_DD>.csv.
+    layouts = (
+        ("data/%s/table.csv" % compact, "data/%s/categories.json" % compact),
+        ("v1/table_%s.csv" % d, "v1/categories_%s.json" % d),
+        ("table_%s.csv" % d, "categories_%s.json" % d),
     )
+
+    def _valid(txt):
+        return bool(txt) and not txt.lstrip().startswith("<!DOCTYPE") \
+            and not txt.lstrip().startswith("<html")
+
     got = {}
-    for suffix, fname, _local in targets:
-        body, status = _http_get(LB_BASE + "/" + fname)
-        if status == 200 and body:
-            got[suffix] = body
+    for table_name, cat_name in layouts:
+        tbody, tst = _http_get(LB_BASE + "/" + table_name)
+        if tst != 200 or not _valid(tbody):
+            continue
+        cbody, cst = _http_get(LB_BASE + "/" + cat_name)
+        if cst != 200 or not _valid(cbody):
+            continue
+        got["table"] = tbody
+        got["categories"] = cbody
+        break
     if "table" not in got or "categories" not in got:
         return False
-    for suffix, _fname, local in targets:
+    targets_save = (".lb_table_%s.csv" % d, ".lb_categories_%s.json" % d)
+    for suffix, local in zip(("table", "categories"), targets_save):
         try:
             with open(os.path.join(BASE_DIR, local), "w",
                       encoding="utf-8", newline="") as f:
@@ -191,7 +288,7 @@ def _invalidate_knowledge_map():
     """KM03: dopo una sync riuscita lo snapshot della knowledge map e' obsoleto.
     Best-effort: un errore dell'indice non deve far fallire la sincronizzazione."""
     try:
-        import knowledge_map
+        from core import knowledge_map
         knowledge_map.invalidate()
     except Exception as e:
         log_error("benchmark_data/knowledge_map_invalidate", e)
@@ -259,9 +356,19 @@ def _sync_openrouter(timeout: int = 8) -> bool:
         if m.get("id") and pr.get("prompt") is not None:
             slim.append({"id": m["id"], "name": m.get("name") or m["id"],
                          "context_length": m.get("context_length") or 0,
-                         "prompt": pr.get("prompt"), "completion": pr.get("completion")})
+                         "prompt": pr.get("prompt"), "completion": pr.get("completion"),
+                         # Prezzo dei token di input serviti dalla cache del
+                         # provider (~10x piu' economico): senza questo campo la
+                         # stima di costo sovrastima l'input ripetuto.
+                         "input_cache_read": pr.get("input_cache_read"),
+                         "input_cache_write": pr.get("input_cache_write")})
     if not slim:
         return False
+    # Arricchimento provider: per ogni modello del pool operativo scarichiamo
+    # gli endpoints (provider con prezzi, latenza, uptime, throughput). Questi
+    # dati servono al costo medio ponderato intelligente e alla scelta del
+    # provider a runtime. Un solo fetch extra per modello, TTL 36h come il resto.
+    _fetch_endpoints(slim, timeout=timeout)
     try:
         with open(OR_CACHE, "w", encoding="utf-8") as f:
             json.dump({"ts": time.time(), "models": slim}, f)
@@ -269,6 +376,61 @@ def _sync_openrouter(timeout: int = 8) -> bool:
     except Exception as e:
         log_error("benchmark_data/or_cache", e)
         return False
+
+
+def _fetch_endpoints(slim: list, timeout: int = 8) -> None:
+    """Arricchisce ogni entry di ``slim`` con la chiave ``endpoints``: lista dei
+    provider OpenRouter per quel modello, con pricing (USD/token), latenza,
+    throughput e uptime reali. Fallisce in silenzio (endpoints = []) se l'API
+    non risponde: il routing usa il prezzo aggregato come fallback.
+    """
+    for m in slim:
+        mid = m.get("id")
+        if not mid:
+            continue
+        try:
+            body, status = _http_get(OR_MODELS_URL + "/" + mid + "/endpoints",
+                                     timeout=timeout)
+            if status != 200 or not body:
+                m["endpoints"] = []
+                continue
+            data = (json.loads(body) or {}).get("data") or {}
+            eps = data.get("endpoints") or []
+            out = []
+            for e in eps:
+                pr = e.get("pricing") or {}
+                try:
+                    p = float(pr.get("prompt") or 0)
+                    c = float(pr.get("completion") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if p <= 0 and c <= 0:
+                    continue
+                # Prezzo di cache per-provider: l'API endpoints lo espone in
+                # pricing.input_cache_read ed e' l'unico dato corretto per i
+                # modelli con forte cache-hit (il valore a livello modello e'
+                # un aggregato che sottostima il costo reale).
+                try:
+                    _cr = pr.get("input_cache_read")
+                    cr = float(_cr) if _cr is not None else None
+                except (TypeError, ValueError):
+                    cr = None
+                out.append({
+                    "provider": e.get("provider_name") or e.get("name") or "?",
+                    "prompt": p,
+                    "completion": c,
+                    "input_cache_read": cr,
+                    "latency": e.get("latency_last_30m"),
+                    "throughput": e.get("throughput_last_30m"),
+                    "uptime_5m": e.get("uptime_last_5m"),
+                    "uptime_1d": e.get("uptime_last_1d"),
+                    "status": e.get("status"),
+                    "quantization": e.get("quantization"),
+                    "context_length": e.get("context_length"),
+                })
+            m["endpoints"] = out
+        except Exception:
+            m["endpoints"] = []
 
 
 def _load_openrouter() -> list:
@@ -400,11 +562,13 @@ def _build_models() -> dict:
             "lb_release": rel, "fonte": "openrouter(stimato)",
         }
         if lb_scores:
-            # categorie LiveBench grezze (tutte quelle in comune) + gruppi routing
+            # macro LiveBench grezze (tutte quelle della release) + composizione
+            # nelle categorie di routing Astral (vedi COMPOSIZIONI_CATEGORIE).
             entry.update({k: round(v, 2) for k, v in lb_scores.items()})
-            entry["conversazione"] = round(lb_scores.get("language", 7.5), 2)
-            entry["codice"] = round(lb_scores.get("coding", 7.5), 2)
-            entry["affidabilita"] = round(lb_scores.get("if", 7.5), 2)
+            entry.update(comporre_macro(lb_scores))
+            entry.setdefault("conversazione", 7.5)
+            entry.setdefault("codice", 7.5)
+            entry.setdefault("affidabilita", 7.5)
             entry["fonte"] = "livebench+openrouter"
         else:
             r = ranks.get(m["id"], 5.0)
@@ -466,8 +630,9 @@ def _build_models() -> dict:
 # qwen3.8-flash (7.26 codice, 7.46 conversazione) a ~5x in meno sull'input.
 POOL_CANONICO = [
     "deepseek/deepseek-v4-flash-0731",
-    "deepseek/deepseek-v4.1-flash",
+    "deepseek/deepseek-v4.1-flash-1017",
     "qwen/qwen3.7-flash",
+    "anthropic/claude-haiku-5.5",
 ]
 
 # Modelli ammessi SOLO nel gruppo ragionamento. Sono esclusi da codice e
@@ -504,7 +669,7 @@ def pool_suggerito(min_costo: float = 5.5, top: int = 2, ctx_min: int = 32768,
 
 
 def _maybe_sync(force: bool = False):
-    """Sync 24h NON bloccante (thread daemon): release LB + catalogo OR."""
+    """Sync 36h NON bloccante (thread daemon): release LB + catalogo OR."""
 
     def job():
         try:
@@ -560,7 +725,7 @@ def info() -> dict:
     rel = next((v.get("lb_release") for v in models.values() if v.get("lb_release")), None)
     return {"modelli": len(models), "release_lb": rel,
             "ultimo_sync": datetime_str(synced) if synced else "mai",
-            "prossimo_sync": "24h dal sync", "fonti": fonti}
+            "prossimo_sync": "36h dal sync", "fonti": fonti}
 
 
 def datetime_str(ts: float) -> str:

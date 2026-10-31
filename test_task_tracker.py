@@ -3,13 +3,19 @@
 # suite, esito test VERIFICATO (non dichiarato), integrazione con avvisi.
 # Ogni test lavora su DB e repo git temporanei: zero scritture sul progetto reale.
 # Standalone ("py test_task_tracker.py") e compatibile pytest.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import os
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import task_tracker as TT
+import tools.task_tracker as TT
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
 
@@ -365,6 +371,62 @@ def test_suite_hash_include_il_supporto_condiviso():
         assert TT._suite_hash() != primo
         # Il supporto entra nell'hash ma NON viene eseguito come test.
         assert TT._test_files() == ["test_uno.py"]
+
+
+# ------------------------------------------------- guardrail anti-riuso ID
+
+def test_scope_similarity_distingue_temi_diversi():
+    a = "feat(#16): integrazione graphify bridge"
+    b = "feat(#16): reminder nativo Windows guardia anti-degenerazione"
+    c = "docs(#16): documentazione graphify"
+    assert TT.scope_similarity(a, c) > TT.scope_similarity(a, b)
+    assert TT.scope_similarity(a, a) == 1.0
+    assert TT.scope_similarity("", a) == 0.0
+
+
+def test_check_task_reuse_segnala_scope_diverso():
+    with Repo() as repo:
+        repo.commit("feat(#80): integrazione graphify bridge")
+        avviso = TT.check_task_reuse("feat(#80): reminder nativo Windows guardia")
+        assert avviso and "#80" in avviso
+
+
+def test_check_task_reuse_tace_su_stesso_tema():
+    with Repo() as repo:
+        repo.commit("feat(#81): integrazione graphify bridge")
+        assert TT.check_task_reuse("docs(#81): documentazione graphify bridge") is None
+
+
+def test_check_task_reuse_none_per_id_nuovo():
+    with Repo() as repo:
+        assert TT.check_task_reuse("feat(#999): lavoro nuovo") is None
+        assert TT.check_task_reuse("senza id") is None
+
+
+# ------------------------------------------- sync: ID orfani dalla storia git
+
+def test_sync_from_git_registra_id_presenti_solo_nei_commit():
+    """Regressione: gli ID esistiti solo nei messaggi di commit (mai creati con
+    create_task) restavano invisibili al registro. Ora sync_from_git li crea e,
+    essendo raggiungibili dal branch integrato, li marca integrated."""
+    with Repo() as repo:
+        repo.commit("feat(#90): lavoro mai registrato nel db")
+        report = TT.sync_from_git()
+        assert 90 in report["created"]
+        task = TT.get_task(90)
+        assert task["status"] == "integrated"
+        assert "lavoro mai registrato" in task["title"]
+
+
+def test_sync_from_git_non_duplica_id_gia_registrati():
+    with Repo() as repo:
+        TT.create_task(91, "Gia' nel registro")
+        git("checkout", "-q", "main" if
+            git("rev-parse", "--verify", "main", cwd=repo.tmp)[0] == 0 else "master",
+            cwd=repo.tmp)
+        report = TT.sync_from_git()
+        assert 91 not in report["created"]
+        assert TT.get_task(91)["title"] == "Gia' nel registro"
 
 
 if __name__ == "__main__":

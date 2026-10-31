@@ -22,7 +22,7 @@ import subprocess
 import sys
 import time
 
-from core_io import BASE_DIR, console, log_error
+from core.core_io import BASE_DIR, console, log_error
 
 
 @dataclass
@@ -139,7 +139,7 @@ def _llm_diagnose(state: SelfRepairState) -> Optional[dict]:
             [{"role": "user", "content": prompt}],
             primary_model=MODEL_CODE
         )
-        text = resp.choices[0].message.content.strip() if resp.choices else ""
+        text = (resp.choices[0].message.content or "").strip() if resp.choices else ""
         return {"diagnosis": text, "model": used_model}
     except Exception as e:
         log_error("repair_loop/llm_diagnose", e)
@@ -352,9 +352,7 @@ def _target_from_traceback(error_text: str) -> str:
 
 
 def repair_from_log(log_path: Optional[str] = None, max_attempts: int = 3) -> SelfRepairState:
-    """Ripara l'ultimo crash: diagnosi, patch atomica, test e rollback se fallisce."""
-    from tools_patch import apply_code_patch, test_python_file
-
+    """Ripara l'ultimo crash leggendolo dal log (percorso legacy)."""
     log_path = log_path or os.path.join(BASE_DIR, "error_log.txt")
     state = SelfRepairState(file_path=os.path.join(BASE_DIR, "astral.py"), max_attempts=max_attempts)
     if not os.path.exists(log_path):
@@ -364,6 +362,32 @@ def repair_from_log(log_path: Optional[str] = None, max_attempts: int = 3) -> Se
 
     state.last_error = _latest_error_block(log_path)
     state.file_path = _target_from_traceback(state.last_error)
+    return _run_repair(state)
+
+
+def repair_event(event: dict, max_attempts: int = 3) -> SelfRepairState:
+    """Ripara un singolo evento del bus watchdog (contesto completo, no tail del log).
+
+    A differenza del percorso legacy qui il target e il tipo di errore arrivano
+    dall'evento pubblicato nel punto in cui l'errore e' nato: nessuna ambiguita'
+    su quale errore si sta riparando.
+    """
+    event = event or {}
+    state = SelfRepairState(file_path=os.path.join(BASE_DIR, "astral.py"), max_attempts=max_attempts)
+    state.last_error = str(event.get("error_text") or "")
+    if not state.last_error.strip():
+        state.status = "aborted"
+        state.last_error = "Evento senza traceback"
+        return state
+    state.file_path = (event.get("target_file")
+                       or _target_from_traceback(state.last_error))
+    return _run_repair(state)
+
+
+def _run_repair(state: SelfRepairState) -> SelfRepairState:
+    """Ciclo diagnosi/patch/test/rollback condiviso dai due entry point."""
+    from tools_patch import apply_code_patch, test_python_file
+
     if not _is_allowed_target(state.file_path):
         state.status = "aborted"
         state.last_error = "Target del traceback fuori dal progetto Astral o non Python"
@@ -423,7 +447,13 @@ def repair_from_log(log_path: Optional[str] = None, max_attempts: int = 3) -> Se
 
 
 def _cli():
-    if "--from-log" not in sys.argv:
+    event_id = ""
+    if "--event" in sys.argv:
+        try:
+            event_id = sys.argv[sys.argv.index("--event") + 1]
+        except IndexError:
+            event_id = ""
+    if "--from-log" not in sys.argv and not event_id:
         return
     lock = os.path.join(BASE_DIR, ".repair_active.lock")
     try:
@@ -439,13 +469,50 @@ def _cli():
             return
         return _cli()
     try:
-        state = repair_from_log()
+        bus = None
+        event = None
+        if event_id:
+            try:
+                import watchdog_bus as bus
+                event = bus.claim_event(event_id)
+            except Exception:
+                bus = None
+        if event_id and event is None:
+            return  # evento gia' preso in carico da un altro riparatore
+        state = repair_event(event) if event is not None else repair_from_log()
+        summary = {"status": state.status, "file": state.file_path,
+                   "attempts": state.attempts, "error_type": state.error_type,
+                   "last_error": state.last_error, "audit": state.audit_trail,
+                   "patches": state.patches_applied, "tests": state.test_results,
+                   "timestamp": time.time()}
         with open(os.path.join(BASE_DIR, ".repair_last.json"), "w", encoding="utf-8") as f:
-            json.dump({"status": state.status, "file": state.file_path,
-                       "attempts": state.attempts, "error_type": state.error_type,
-                       "last_error": state.last_error, "audit": state.audit_trail,
-                       "patches": state.patches_applied, "tests": state.test_results,
-                       "timestamp": time.time()}, f, ensure_ascii=False, indent=2)
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        if bus is not None and event_id:
+            # Esito indirizzato al processo che ha visto l'errore + broadcast a tutti.
+            try:
+                bus.write_result(event_id, {
+                    "status": state.status,
+                    "file": state.file_path,
+                    "error_type": state.error_type,
+                    "attempts": state.attempts,
+                    "origin_pid": (event or {}).get("pid"),
+                })
+                origin_pid = (event or {}).get("pid")
+                bus.close_event(event_id, status=state.status)
+                ok = state.status == "success"
+                bus.publish_notice(
+                    "repair",
+                    "Astral - Self-repair",
+                    ("Riparazione riuscita su %s (%s)." % (os.path.basename(state.file_path), state.error_type)
+                     if ok else
+                     "Riparazione NON riuscita su %s (%s): intervento manuale."
+                     % (os.path.basename(state.file_path), state.error_type)),
+                    event_id=event_id,
+                    origin_pid=origin_pid,
+                    target_pid=origin_pid,
+                )
+            except Exception:
+                pass
         if state.status == "success" and "--restart" in sys.argv:
             subprocess.Popen([sys.executable, os.path.join(BASE_DIR, "astral.py")], cwd=BASE_DIR,
                              creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))

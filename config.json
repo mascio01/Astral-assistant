@@ -1,4 +1,5 @@
-﻿{
-    "api_key":  "",
-    "tool_token_budget":  3500000
+{
+    "api_key": "",
+    "tool_token_budget": 3000000,
+    "current_model": "auto"
 }

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # llm_core.py - Config LLM, routing, fallback dinamico, telemetria, self-repair
 import os
 from dotenv import load_dotenv
@@ -15,8 +15,8 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.markup import escape
 
-from core_io import BASE_DIR, console, log_error, safe_print, get_session_color
-from memory_store import TELEMETRY_DB, get_config
+from core.core_io import BASE_DIR, console, log_error, safe_print, get_session_color
+from core.memory_store import TELEMETRY_DB, get_config
 from exec_logger import log_execution
 import random
 import collections
@@ -207,8 +207,6 @@ MODELS = {
     "luna": "openai/gpt-5.6-luna",
     "5.6-luna": "openai/gpt-5.6-luna",
     "gpt-5.6-luna": "openai/gpt-5.6-luna",
-    "gpt-6-luna": "openai/gpt-6-luna",
-    "6-luna": "openai/gpt-6-luna",
     "qwen": "qwen/qwen3.7-flash",
     "qwen3.7": "qwen/qwen3.7-flash",
     "qwen3.7-flash": "qwen/qwen3.7-flash",
@@ -813,16 +811,23 @@ def auto_repair():
     return state
 
 def repair_watchdog():
-    """Thread demone: monitora error_log.txt e i file del protocollo verdetto.
-    - Single-flight globale: solo UNA istanza astral fa da leader (lock file
-      O_EXCL con heartbeat rinnovato); le altre restano in ascolto passivo.
-      Se il leader muore, il lock stantio (>60s) viene rilasciato.
-    - Anti-storm: cooldown 180s tra processi --repair consecutivi.
-    - Watchdog stalla: se .verdict_out.txt resta senza VERDICT_DONE per oltre
-      600s, kill del runner orfano + pulizia dei file .verdict_*.
+    """Thread demone: consuma gli eventi del bus watchdog e sorveglia il verdetto.
+
+    Cosa e' cambiato rispetto al vecchio tail di error_log.txt:
+      * gli errori arrivano da watchdog_bus (contesto + traceback + file target
+        pubblicati nel punto in cui l'errore nasce), non da un match su 30
+        caratteri di una riga di log: niente piu' errori scambiati;
+      * ogni evento viene preso in carico UNA volta sola (claim atomico), quindi
+        due processi Astral non riparano lo stesso errore;
+      * la notifica e' BROADCAST: tutti i processi Astral attivi la leggono e la
+        mostrano, non solo quello che ha visto il problema;
+      * l'esito della riparazione torna al processo d'origine (results/) e a
+        tutti gli altri (notices/).
+
+    Resta invariato: single-flight del leader (lock O_EXCL con heartbeat),
+    anti-storm con cooldown, watchdog stalla sul protocollo verdetto.
     Non ferma mai il loop principale (self-healing)."""
     def _watch():
-        log_file = os.path.join(BASE_DIR, "error_log.txt")
         lock_file = os.path.join(BASE_DIR, ".watchdog.lock")
         out_file = os.path.join(BASE_DIR, ".verdict_out.txt")
         COOLDOWN = 180
@@ -830,17 +835,10 @@ def repair_watchdog():
         LOCK_STALE = 60
         is_leader = False
         last_repair = 0.0
-        last_seen = ""
         try:
-            if os.path.exists(log_file):
-                with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                    tail = f.read()[-4000:]
-                for line in tail.splitlines():
-                    if "] ERROR" in line:
-                        last_seen = line[:30]
-                        break
+            import watchdog_bus as bus
         except Exception:
-            pass
+            bus = None
         while True:
             # --- leadership single-flight (heartbeat rinnovato a ogni ciclo) ---
             try:
@@ -901,31 +899,45 @@ def repair_watchdog():
             except Exception:
                 pass
 
-            # --- monitor errori + repair (solo leader, con cooldown) ---
+            # --- heartbeat processo + notifiche INDIRIZZATE a questo processo ---
             try:
-                if is_leader and (time.time() - last_repair >= COOLDOWN) and os.path.exists(log_file):
-                    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                        tail = f.read()[-4000:]
-                    cand = ""
-                    for line in tail.splitlines():
-                        if "] ERROR" in line:
-                            cand = line[:30]
-                            break
-                    if cand and cand != last_seen:
-                        last_seen = cand
-                        last_repair = time.time()
-                        safe_print("[watchdog] Nuovo errore nel log: avvio self-repair in console separata...")
+                if bus is not None:
+                    bus.register_process()
+                    # read_notices() scarta le notifiche con target_pid diverso:
+                    # un errore nato altrove non disturba questa sessione.
+                    for notice in bus.read_notices():
+                        safe_print("[watchdog] %s" % notice.get("message", ""))
                         try:
                             import sys_notify as _sysn
                             _sysn.notify(
-                                "Astral - Watchdog",
-                                "Nuovo errore rilevato nel log: avvio self-repair automatico.",
-                                kind="watchdog",
+                                notice.get("title") or "Astral - Watchdog",
+                                notice.get("message") or "",
+                                kind=notice.get("kind") or "watchdog",
                             )
                         except Exception:
                             pass
+            except Exception:
+                pass
+
+            # --- monitor eventi + repair (claim atomico, cooldown globale) ---
+            # Non serve piu' essere leader: claim_event() sposta l'evento con
+            # os.replace, quindi se piu' processi lo vedono uno solo lo ottiene
+            # e gli altri trovano None. Il leader resta solo per il verdetto.
+            try:
+                if bus is not None:
+                    bus.requeue_stale()
+                if bus is not None and (time.time() - last_repair >= COOLDOWN) \
+                        and bus.global_cooldown_ok(window_s=COOLDOWN):
+                    events = bus.pending_events(limit=1)
+                    if events:
+                        event = events[0]
+                        last_repair = time.time()
+                        target = os.path.basename(event.get("target_file") or "?") or "?"
+                        safe_print("[watchdog] Errore rilevato da pid %s (%s in %s): avvio self-repair..."
+                                   % (event.get("pid") or "?", event.get("error_type") or "?", target))
                         subprocess.Popen(
-                            [sys.executable, os.path.join(BASE_DIR, "repair_loop.py"), "--from-log"],
+                            [sys.executable, os.path.join(BASE_DIR, "repair_loop.py"),
+                             "--event", str(event.get("id"))],
                             cwd=BASE_DIR,
                             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                         )

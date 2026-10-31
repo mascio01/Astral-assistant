@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Servizio di avvio e attesa del consiglio dei giudici (verdict).
 
 Il processo madre non esegue mai run_verdict() inline: qui si scrive il
@@ -20,7 +20,7 @@ import time
 import uuid
 from datetime import datetime
 
-from core_io import BASE_DIR, log_error
+from core.core_io import BASE_DIR, log_error
 
 QUESITO_FILE = os.path.join(BASE_DIR, ".verdict_quesito.tmp")
 OUT_FILE = os.path.join(BASE_DIR, ".verdict_out.txt")

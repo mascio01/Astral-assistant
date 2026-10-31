@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Modulo estratto da astral.py - modularizzazione fase 1 (12/09/2026)
 
-from memory_store import _jaccard, _word_set
+from core.memory_store import _jaccard, _word_set
 
 LOOP_SIMILARITY_THRESHOLD = 0.75
 LOOP_MIN_REPEATS = 3

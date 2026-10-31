@@ -2,13 +2,19 @@
 # test_astral_trim.py - Copertura astral_trim: blocchi atomici, selezione coda,
 # budget, trimmer v1/v2, ledger fattuale, tolleranza a input malformati.
 # Standalone ("py test_astral_trim.py") e compatibile pytest.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import astral_trim as T
+from core import astral_trim as T
 from _test_support import Patcher, run_all
 
 

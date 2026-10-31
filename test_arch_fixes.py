@@ -1,6 +1,12 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # test_arch_fixes.py - Fase 5 (G05, G08, G09).
 # Offline: solo tempdir e monkeypatch.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import os
 import sys
 
@@ -59,8 +65,7 @@ def test_g08_ui_esportata():
 # ------------------------------------------------------------------ G09 ---
 def test_g09_config_error_non_silenzioso():
     """Il salvataggio config non deve fallire in silenzio: l'errore va segnalato."""
-    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "astral.py"), encoding="utf-8").read()
+    src = open(os.path.join(_ROOT_BOOT, "astral.py"), encoding="utf-8").read()
     assert "Impossibile salvare la config" in src, "errore config ancora silenzioso"
     assert "save_config_model" in src, "manca il log dell'errore config"
 

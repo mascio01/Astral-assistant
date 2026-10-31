@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # selfmap.py - Auto-mappa del progetto (self-awareness persistente).
 import ast, datetime, hashlib, json, os, threading, time, warnings
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -200,7 +200,7 @@ def start_watcher(interval=10):
 # Fase 1: catalogo curato separato dallo snapshot, validazione, confinamento
 # delle fonti e writer coordinati vivono in knowledge_map.py. Qui restano solo
 # alias compatibili per i chiamanti storici (astral.py, llm_core, gateway).
-import knowledge_map as _km
+from core import knowledge_map as _km
 
 KNOWMAP_JSON = _km.MAP_JSON
 KNOWMAP_MD = _km.MAP_MD

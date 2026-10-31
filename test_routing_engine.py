@@ -2,6 +2,12 @@
 # test_routing_engine.py - Copertura routing_engine: classificazione, categorie
 # attive, bonus di profilo, score, delta personale, gate/isteresi, audit snello.
 # Standalone ("py test_routing_engine.py") e compatibile pytest.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import json
 import os
 import sys
@@ -270,11 +276,11 @@ def test_profile_bonus_premia_i_modelli_giusti():
     semplice = R._context_features("scrivi uno script python")
     assert semplice["code_complex"] is False
     assert R._profile_bonus("deepseek/deepseek-v4-flash-0731", semplice, "codice") > \
-        R._profile_bonus("deepseek/deepseek-v4.1-flash", semplice, "codice")
+        R._profile_bonus("deepseek/deepseek-v4.1-flash-1017", semplice, "codice")
     # Su codice COMPLESSO il 4.1-flash (input 0.10/M) deve invece vincere.
     complesso = R._context_features("rifattorizza e ottimizza questo algoritmo")
     assert complesso["code_complex"] is True
-    assert R._profile_bonus("deepseek/deepseek-v4.1-flash", complesso, "codice") > \
+    assert R._profile_bonus("deepseek/deepseek-v4.1-flash-1017", complesso, "codice") > \
         R._profile_bonus("deepseek/deepseek-v4-flash-0731", complesso, "codice")
 
 
@@ -283,7 +289,7 @@ def test_profile_bonus_ragionamento_spegne_il_premio_al_0731():
     altrimenti il confronto sul reasoning reale non avverrebbe mai."""
     feat = R._context_features("ragiona passo per passo e valuta i trade-off")
     b0731 = R._profile_bonus("deepseek/deepseek-v4-flash-0731", feat, "ragionamento")
-    b41 = R._profile_bonus("deepseek/deepseek-v4.1-flash", feat, "ragionamento")
+    b41 = R._profile_bonus("deepseek/deepseek-v4.1-flash-1017", feat, "ragionamento")
     # I due deepseek restano vicini: nessun premio di policy da +0.45.
     assert abs(b0731 - b41) < 0.30
 
@@ -292,8 +298,9 @@ def test_pool_include_il_modello_di_ragionamento():
     """Il terzo modello serve SOLO il ragionamento: codice/conversazione restano
     ai due deepseek, che sono la policy di costo."""
     assert R.ROUTING_POOL == ["deepseek/deepseek-v4-flash-0731",
-                              "deepseek/deepseek-v4.1-flash",
-                              "qwen/qwen3.7-flash"]
+                              "deepseek/deepseek-v4.1-flash-1017",
+                              "qwen/qwen3.7-flash",
+                              "anthropic/claude-haiku-5.5"]
     # Nessun modello "caro" e' entrato come default di conversazione.
     assert "openai/gpt-5.6-luna" not in R.ROUTING_POOL
 

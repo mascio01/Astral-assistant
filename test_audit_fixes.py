@@ -1,9 +1,15 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # test_audit_fixes.py - Regressione per i rilievi dell'audit sicurezza/affidabilita'
 # (task #5): A-01 command injection, A-02 SSRF/redirect, A-03 path traversal,
 # A-04 redazione log, A-05 race budget, A-06 idempotenza timeout, A-07 slot
 # fail-closed, A-08 atomicita' task/Git, A-09 crash handler robusto.
 # Standalone ("py test_audit_fixes.py") e compatibile pytest.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import os
 import sys
 import time
@@ -181,7 +187,7 @@ def test_a06_duplicate_side_effect_blocked():
 
 # --- A-08: atomicita' task/Git ----------------------------------------------
 def test_a08_duplicate_id_rejected():
-    import task_tracker as T
+    import tools.task_tracker as T
     tmp = temp_dir()
     p = Patcher()
     try:
@@ -198,7 +204,7 @@ def test_a08_duplicate_id_rejected():
 
 
 def test_a08_git_failure_rolls_back():
-    import task_tracker as T
+    import tools.task_tracker as T
     tmp = temp_dir()
     p = Patcher()
     try:
@@ -216,7 +222,7 @@ def test_a08_git_failure_rolls_back():
 
 # --- A-09: crash handler robusto a errori I/O -------------------------------
 def test_a09_crash_handler_survives_log_failure():
-    import core_io as C
+    from core import core_io as C
     p = Patcher()
     started = {"n": 0}
     try:

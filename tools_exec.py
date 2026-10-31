@@ -1,10 +1,10 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # tools_exec.py - Schema tools OpenAI + dispatcher di esecuzione
 import os
 import subprocess
 
-from core_io import BASE_DIR, _scan_dir_fast, cap_output
-from memory_store import recall_get, recall_list, recall_save
+from core.core_io import BASE_DIR, _scan_dir_fast, cap_output
+from core.memory_store import recall_get, recall_list, recall_save
 from tools_patch import apply_code_patch, test_python_file
 from exec_logger import log_execution
 import json

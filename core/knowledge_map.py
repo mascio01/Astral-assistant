@@ -13,7 +13,8 @@ import threading
 import time
 import unicodedata
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# Il modulo vive in core/: i cataloghi stanno nella root del progetto.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CATALOG_JSON = os.path.join(ROOT, "knowledge_catalog.json")
 CATALOG_LOCAL = os.path.join(ROOT, "knowledge_catalog.local.json")
 MAP_JSON = os.path.join(ROOT, "knowledge_map.json")
@@ -114,12 +115,17 @@ DEFAULT_CATALOG = {
 
 # Pattern ammessi come fonte (KM07: confinamento). Solo la root del progetto.
 _ALLOWED_PATTERNS = (
-    "benchmark_data.py", "price_map.py", "knowledge_catalog.json",
+    "benchmark_data.py", "core/benchmark_data.py",
+    "price_map.py", "knowledge_catalog.json",
     ".lb_table_*.csv", ".lb_cost_*.csv", ".lb_categories_*.json",
     ".lb_sync_state.json", ".or_models_cache.json",
     ".routing_personal_scores.json", ".routing_audit.jsonl",
     "prices_override.json",
 )
+
+# Directory di servizio escluse dal fallback ricorsivo delle fonti.
+_SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".venv", "env",
+              "build", "dist", "scratch", "site-packages"}
 
 _STOPWORDS = {
     "a", "ad", "al", "alla", "alle", "che", "chi", "ci", "con", "cosa", "da", "dal",
@@ -407,19 +413,43 @@ def _normalize_record(record):
 
 # --- Fonti: confinamento e metadati (KM02, KM03, KM07) -----------------------
 def _resolve_source(pattern):
-    """Risolve un pattern nella sola ROOT; rifiuta symlink e uscite dal confine."""
+    """Risolve un pattern dentro ROOT; rifiuta symlink e uscite dal confine."""
     root_abs = os.path.realpath(ROOT)
     found = []
+    # Un pattern con separatore indica una sottocartella del progetto
+    # (es. core/benchmark_data.py). Resta comunque risolto rispetto alla ROOT,
+    # quindi il confinamento KM07 vale anche dopo la modularizzazione.
+    normalized = str(pattern).replace("\\", "/")
+    base_dir = os.path.dirname(normalized)
+    leaf = os.path.basename(normalized)
+    scan_dir = os.path.join(ROOT, base_dir.replace("/", os.sep)) if base_dir else ROOT
     try:
-        names = os.listdir(ROOT)
+        names = sorted(os.listdir(scan_dir))
     except OSError as exc:
         return found, "unreadable:%s" % type(exc).__name__
-    for name in names:
-        if not fnmatch.fnmatch(name.lower(), pattern.lower()):
-            continue
-        full = os.path.join(ROOT, name)
+    candidates = [(name, (base_dir + "/" + name) if base_dir else name,
+                   os.path.join(scan_dir, name))
+                  for name in names
+                  if fnmatch.fnmatch(name.lower(), leaf.lower())]
+    if not candidates and not base_dir:
+        # Fallback post-modularizzazione: la fonte puo' essere stata spostata in
+        # una sottocartella del progetto (core/, tools/). La ricerca resta
+        # confinata a ROOT e scarta le directory di servizio.
+        for current, dirs, files in os.walk(ROOT):
+            dirs[:] = [d for d in dirs
+                       if d not in _SKIP_DIRS and not d.startswith(".")]
+            for name in sorted(files):
+                if not fnmatch.fnmatch(name.lower(), leaf.lower()):
+                    continue
+                full_path = os.path.join(current, name)
+                rel_path = os.path.relpath(full_path, ROOT).replace(os.sep, "/")
+                candidates.append((rel_path, rel_path, full_path))
+            if candidates:
+                break
+    for name, rel_name, full in candidates:
         if os.path.islink(full):
-            found.append({"path": name, "allowed": False, "reason": "symlink_not_allowed"})
+            found.append({"path": rel_name, "allowed": False,
+                          "reason": "symlink_not_allowed"})
             continue
         real = os.path.realpath(full)
         try:
@@ -427,9 +457,10 @@ def _resolve_source(pattern):
         except ValueError:
             inside = False
         if not inside:
-            found.append({"path": name, "allowed": False, "reason": "outside_root"})
+            found.append({"path": rel_name, "allowed": False,
+                          "reason": "outside_root"})
             continue
-        found.append({"path": name, "allowed": True, "reason": ""})
+        found.append({"path": rel_name, "allowed": True, "reason": ""})
     return sorted(found, key=lambda item: item["path"]), ""
 
 

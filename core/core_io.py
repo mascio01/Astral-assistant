@@ -53,19 +53,76 @@ def _early_log(context, exc):
                 context, exc, __import__("traceback").format_exc()))
     except Exception:
         pass
-BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+# BASE_DIR e' la ROOT del progetto: questo modulo vive in core/, quindi
+# risaliamo di un livello. In build frozen resta la cartella dell'eseguibile.
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_FILE = os.path.join(BASE_DIR, "error_log.txt")
 def log_error(context, exc):
-    """Log universale: data/ora + contesto + codice errore/traceback su error_log.txt."""
+    """Log universale: data/ora + contesto + codice errore/traceback su error_log.txt.
+
+    [FIX W1] In modalita' test (ASTRAL_TEST_MODE=1) gli errori INTENZIONALI della
+    suite vanno su un file separato e con prefisso [TEST]: altrimenti finiscono
+    nel log di produzione e il watchdog di self-repair li scambia per guasti
+    reali, avviando una console di riparazione a ogni run dei test.
+    """
     try:
         code = getattr(exc, "code", None)
         code_str = f" [codice: {code}]" if code is not None else ""
-        with open(LOG_FILE, "a", encoding="utf-8") as lf:
+        target = LOG_FILE
+        if os.environ.get("ASTRAL_TEST_MODE"):
+            target = os.path.join(os.path.dirname(LOG_FILE), "error_log_test.txt")
+            context = "[TEST] " + str(context)
+        tb_text = traceback.format_exc()
+        with open(target, "a", encoding="utf-8") as lf:
             lf.write("[%s] ERROR (%s)%s: %s\n%s%s\n" % (
                 _dt.now().strftime("%Y-%m-%d %H:%M:%S"), context, code_str, exc,
-                traceback.format_exc(), "-" * 50))
+                tb_text, "-" * 50))
+        # [WATCHDOG-BUS] L'errore viene pubblicato nel punto in cui nasce, con
+        # contesto e traceback completi: il watchdog non deve piu' indovinare
+        # leggendo le prime 30 colonne di una riga di log.
+        if not os.environ.get("ASTRAL_TEST_MODE"):
+            try:
+                import watchdog_bus as _bus
+                # Il pid d'origine viaggia con l'evento: e' il destinatario
+                # unico della notifica di esito (niente piu' broadcast).
+                return _bus.publish_event(
+                    error_text=tb_text,
+                    error_type=type(exc).__name__,
+                    context=str(context),
+                    target_file=_bus.target_from_traceback(tb_text),
+                    pid=os.getpid(),
+                )
+            except Exception:
+                pass
     except Exception:
         pass
+    return None
+
+
+def repair_state(event_id):
+    """Stato della riparazione di un errore: pending / repairing / done / unknown.
+
+    Da usare quando un chiamante vuole sapere se il watchdog sta riparando il
+    file prima di decidere se proseguire o attendere il riavvio.
+    """
+    try:
+        import watchdog_bus as _bus
+        return _bus.event_state(event_id)
+    except Exception:
+        return {"phase": "unknown", "event_id": event_id}
+
+
+def await_repair(event_id, timeout=90.0):
+    """Attende l'esito della riparazione entro `timeout` secondi (best-effort)."""
+    try:
+        import watchdog_bus as _bus
+        return _bus.wait_for_repair(event_id, timeout=timeout)
+    except Exception:
+        return {"phase": "unknown", "event_id": event_id, "timed_out": True}
+
 def launch_self_repair(restart=False):
     """Avvia un riparatore isolato; opzionalmente riapre Astral dopo il fix."""
     try:
@@ -104,6 +161,25 @@ def global_exception_handler(exc_type, exc_value, exc_tb):
             sys.stderr.write("\n[Astral] Crash (log su file non riuscito):\n" + error_msg + "\n")
         except Exception:
             pass
+    # [WATCHDOG-BUS] Il crash entra nel bus: qualunque processo Astral attivo
+    # riceve la notifica e il leader puo' ripararlo con il contesto completo.
+    try:
+        import watchdog_bus as _bus
+        _bus.publish_event(
+            error_text=error_msg,
+            error_type=getattr(exc_type, "__name__", "Crash"),
+            context="global_exception_handler",
+            target_file=_bus.target_from_traceback(error_msg),
+        )
+        # Notifica indirizzata a QUESTO processo: nessun'altra sessione
+        # deve ricevere l'avviso di un crash che non la riguarda.
+        _bus.publish_notice(
+            "crash", "Astral - Crash",
+            "Crash di un processo Astral: autoriparazione in corso.",
+            target_pid=os.getpid(),
+        )
+    except Exception:
+        pass
     # Il recovery non dipende dal successo della scrittura del log.
     try:
         started = launch_self_repair(restart=True)

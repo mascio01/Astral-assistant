@@ -1,6 +1,12 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # test_memory_fixes.py - Fase 4 (G14, G16, G17, G20).
 # Offline: solo tempdir e monkeypatch, nessuna rete, nessun processo reale.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import os
 import sqlite3
 import sys
@@ -10,9 +16,9 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import exec_logger as EL
-import memory_meta as MM
-import memory_store as MS
-import task_tracker as TT
+from core import memory_meta as MM
+from core import memory_store as MS
+import tools.task_tracker as TT
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
 

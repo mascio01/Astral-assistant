@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # astral.py - Entry point: REPL, comandi slash, ciclo conversazione
 import json
 import os
@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from core_io import _early_log, console, install_exception_hooks, launch_self_repair, log_error, set_session_color
+from core.core_io import _early_log, console, install_exception_hooks, launch_self_repair, log_error, set_session_color
 
 try:
     import stt_integration
@@ -80,13 +80,13 @@ from loop_detector import LoopDetector
 #   - WARN2 (config 'tool_round_warn2', default 100): secondo avviso non bloccante.
 #   - SOFT  (config 'tool_round_soft_limit', default 130): avviso + conferma utente.
 #   - HARD  (config 'tool_round_hard_limit', default 150): stop assoluto.
-#   - TOKEN (config 'tool_token_budget', default 2000000; 0=illimitato):
+#   - TOKEN (config 'tool_token_budget', default 3000000; 0=illimitato):
 #     stop quando i token cumulati nel turno superano il budget.
 _TOOL_ROUND_WARN1_DEFAULT = 50
 _TOOL_ROUND_WARN2_DEFAULT = 100
 _TOOL_ROUND_DEFAULT = 130
 _TOOL_ROUND_HARD_DEFAULT = 150
-_TOOL_TOKEN_BUDGET_DEFAULT = 2_000_000
+_TOOL_TOKEN_BUDGET_DEFAULT = 3_000_000
 
 # [ANTI-LOOP] Circuit breaker sul loop principale: se piu' turni consecutivi
 # sollevano eccezioni (errore sistemico, es. NameError prima del prompt di
@@ -111,9 +111,17 @@ def _get_tool_round_limit(key, default, aliases=()):
 
 
 def _get_tool_token_budget():
-    """Budget token cumulati per turno (config 'tool_token_budget', default 2M; 0=illimitato)."""
+    """Budget token cumulati per turno (config 'tool_token_budget', default 3M; 0=illimitato)."""
     try:
         raw = get_config("tool_token_budget", None)
+        if raw is None:
+            # Fallback: config.json (get_config legge solo da config.db)
+            try:
+                if os.path.exists(CONFIG_FILE):
+                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                        raw = json.load(f).get("tool_token_budget")
+            except Exception:
+                raw = None
         if raw is not None:
             val = int(str(raw).strip())
             if val >= 0:
@@ -273,10 +281,10 @@ def _notify_turn_done(messages, elapsed_s):
     except Exception:
         return False
 
-from memory_store import checkpoint_pull, checkpoint_save, get_config, init_db
-from memory_meta import bootstrap_meta, record_usage
+from core.memory_store import checkpoint_pull, checkpoint_save, get_config, init_db
+from core.memory_meta import bootstrap_meta, record_usage
 from price_map import all_prices, cost_usd
-from history_store import (
+from core.history_store import (
     CONFIG_FILE,
     clear_persistent_history,
     compact_history_with_summary,
@@ -284,7 +292,7 @@ from history_store import (
     maybe_offload_tool_result,
     save_persistent_history,
 )
-from astral_trim import (  # v2 breathing: finestra sinusoidale + ledger fattuale
+from core.astral_trim import (  # v2 breathing: finestra sinusoidale + ledger fattuale
     last_meta,
     safe_trim_context,
 )
@@ -482,7 +490,7 @@ def run_meta_maintenance():
                 last = int(f.read().strip() or 0)
         if time.time() - last < 86400:  # min 24h
             return
-        from memory_meta import audit_meta, prune
+        from core.memory_meta import audit_meta, prune
         rep = {}
         rep["audit"] = audit_meta() or {}
         rep["prune"] = prune() or {}
@@ -490,7 +498,7 @@ def run_meta_maintenance():
         # la loro retention operava solo sul save, restando di fatto inattiva
         # senza nuovi salvataggi.
         try:
-            from memory_store import maintain_memory
+            from core.memory_store import maintain_memory
             rep["store"] = maintain_memory() or {}
         except Exception:
             rep["store"] = {}
@@ -712,7 +720,7 @@ def _claim_session_slot():
         # (piu' processi si comporterebbero come la stessa sessione).
         # Ritorniamo -1: il chiamante blocca l'avvio e l'errore viene loggato.
         try:
-            from core_io import log_error
+            from core.core_io import log_error
             log_error("claim_session_slot", e)
         except Exception:
             pass
@@ -775,7 +783,7 @@ def main():
                 # Budget tier: check credito residuo OpenRouter UNA volta per
                 # processo; modula il peso del costo nel routing dinamico.
                 try:
-                    from budget_guard import check_credits
+                    from core.budget_guard import check_credits
                     from routing_engine import set_budget_tier
                     set_budget_tier(*check_credits())
                 except Exception:
@@ -828,7 +836,7 @@ def main():
                 # Azzera anche lo stato di sessione del trimmer: senza questo
                 # l'obiettivo globale restava in memoria e ricompariva nel
                 # primo checkpoint dopo la pulizia.
-                import astral_trim as _at
+                from core import astral_trim as _at  # modulo canonico (evita doppio oggetto modulo)
                 _at.reset_session_state()
                 messages = []
                 session_first_msg = True
@@ -869,7 +877,7 @@ def main():
                 continue
 
             if lower_input == '/breath':
-                import astral_trim as _at
+                from core import astral_trim as _at  # modulo canonico (evita doppio oggetto modulo)
                 _lm = _at.last_meta
                 console.print(Panel(
                     f"[bold]PERIODO[/]     {_at.BREATH_PERIOD} turni   [bold]FINESTRA[/]   {_at.WAVE_MIN_TURNS}-"
@@ -1050,7 +1058,7 @@ def main():
 
             if lower_input.startswith('/meta-stats'):
                 try:
-                    from memory_meta import stats as meta_stats
+                    from core.memory_meta import stats as meta_stats
                     _ms_days = 7
                     _ms_p = lower_input.split()
                     if len(_ms_p) > 1:
@@ -1066,7 +1074,7 @@ def main():
 
             if lower_input.startswith('/meta-pin') or lower_input.startswith('/meta-unpin'):
                 try:
-                    from memory_meta import pin as meta_pin, unpin as meta_unpin
+                    from core.memory_meta import pin as meta_pin, unpin as meta_unpin
                     _mp = lower_input.split()
                     if len(_mp) < 2:
                         console.print("[dim]Uso: /meta-pin <src_ref|ln:N>  |  /meta-unpin <src_ref|ln:N>[/dim]")
@@ -1080,7 +1088,7 @@ def main():
 
             if lower_input.startswith('/meta-tag'):
                 try:
-                    from memory_meta import tag as meta_tag
+                    from core.memory_meta import tag as meta_tag
                     _mt = user_input.split(maxsplit=2)
                     if len(_mt) < 3:
                         console.print("[dim]Uso: /meta-tag <src_ref|ln:N> <tag1,tag2,...>[/dim]")
@@ -1093,7 +1101,7 @@ def main():
 
             if lower_input.startswith('/meta-last'):
                 try:
-                    from memory_meta import list_events
+                    from core.memory_meta import list_events
                     _ml_n, _ml_tag = 10, None
                     _ml_p = lower_input.split()
                     if len(_ml_p) > 1:
@@ -1122,7 +1130,7 @@ def main():
 
             if lower_input == '/prune':
                 try:
-                    from memory_meta import prune
+                    from core.memory_meta import prune
                     _pr = prune()
                     console.print(f"[bold cyan]Prune eseguito[/]: soft_deleted={_pr['soft_deleted']} purged={_pr['purged']} pinned_immuni={_pr['pinned']}")
                     if _pr.get('snapshot'):
@@ -1133,7 +1141,7 @@ def main():
 
             if lower_input == '/audit':
                 try:
-                    from memory_meta import audit_meta
+                    from core.memory_meta import audit_meta
                     _au = audit_meta()
                     if _au.get('error'):
                         console.print(ui_error(f"[!] /audit error: {_au['error']}"))
@@ -1220,7 +1228,7 @@ def main():
                             _tag = " [green]~ scontato[/]" if _k.startswith("deepseek-v4-flash-latest") else ""
                             console.print(f"  - {_k:<24}[gold1]{_p:>7.2f}[/] | [gold1]{_c:>7.2f}[/]{_tag}")
                     else:
-                        from memory_meta import usage_rows, usage_stats
+                        from core.memory_meta import usage_rows, usage_stats
                         _rows = usage_rows(_u_days)
                         if not _rows:
                             console.print(f"[yellow]Nessun utilizzo registrato negli ultimi {_u_days} giorni.[/]")
@@ -1727,7 +1735,7 @@ def _handle_task_command(user_input):
       /task-sync            riconcilia registro <-> git
     """
     try:
-        import task_tracker as tt
+        from tools import task_tracker as tt
     except Exception as e:
         console.print(ui_error(f"[!] task_tracker non disponibile: {e}"))
         return
@@ -1801,15 +1809,21 @@ def _handle_task_command(user_input):
 # I dati condivisi usano SQLite; la cronologia conversazionale e' per-sessione.
 
 def _start_loop_watchdog():
-    """Thread daemon: rileva spin-loop (CPU costantemente alta) e scrive heartbeat."""
+    """Monitora CPU del processo e salva stack diagnostici, senza invocare il self-repair."""
     import threading
-    hb_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".astral_heartbeat.tmp")
+    import sys
+    import traceback
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    hb_file = os.path.join(base_dir, ".astral_heartbeat.tmp")
+    diagnostic_file = os.path.join(base_dir, ".astral_watchdog.log")
     last_cpu = time.process_time()
     last_t = time.time()
     spin_streak = 0
+    last_report = 0.0
 
     def _tick():
-        nonlocal last_cpu, last_t, spin_streak
+        nonlocal last_cpu, last_t, spin_streak, last_report
         while True:
             time.sleep(5)
             now = time.time()
@@ -1817,6 +1831,8 @@ def _start_loop_watchdog():
             delta_cpu = cpu - last_cpu
             delta_t = now - last_t
             last_cpu, last_t = cpu, now
+            # Percentuale rispetto a un singolo core: puo' superare 100% se il
+            # processo usa piu' thread/core; non equivale alla CPU totale Windows.
             pct = (delta_cpu / delta_t * 100) if delta_t > 0 else 0
             try:
                 with open(hb_file, "w", encoding="utf-8") as f:
@@ -1827,21 +1843,41 @@ def _start_loop_watchdog():
                 spin_streak += 1
             else:
                 spin_streak = 0
-            if spin_streak >= 6:  # 30s consecutivi >80% CPU
+                last_report = 0.0
+            # Alto uso CPU non dimostra da solo un loop. Acquisisci gli stack
+            # dei thread e non scrivere ERROR: il repair_watchdog monitora error_log.
+            if spin_streak >= 6 and now - last_report >= 60:
+                last_report = now
+                try:
+                    frames = sys._current_frames()
+                    lines = [
+                        f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] pid={os.getpid()} "
+                        f"process_cpu={pct:.0f}% (per core; non CPU totale) "
+                        f"sostenuta_per={spin_streak * 5}s; possibile carico intenso o loop."
+                    ]
+                    for thread in threading.enumerate():
+                        lines.append(
+                            f"\\n--- thread {thread.name!r} ident={thread.ident} "
+                            f"daemon={thread.daemon} ---\\n"
+                        )
+                        frame = frames.get(thread.ident)
+                        if frame is not None:
+                            lines.extend(traceback.format_stack(frame))
+                    lines.append("\\n")
+                    with open(diagnostic_file, "a", encoding="utf-8") as f:
+                        f.writelines(lines)
+                except Exception:
+                    pass
                 console.print(
-                    "[bold orange_red1][!] WATCHDOG: possibile spin-loop (CPU >80% per 30s). "
-                    "Se non stai eseguendo un calcolo, premi Ctrl+C o /exit.[/]"
+                    f"[bold orange_red1][!] WATCHDOG: CPU del processo {pct:.0f}% "
+                    "per almeno 30s (misura per-core, non prova di spin-loop). "
+                    "Stack salvati in .astral_watchdog.log.[/]"
                 )
                 _sys_notify(
                     "Astral - WATCHDOG",
-                    "Possibile spin-loop: CPU >80% per 30s.",
+                    f"CPU del processo {pct:.0f}% per almeno 30s; stack diagnostici salvati.",
                     kind="watchdog",
                 )
-                try:
-                    log_error("watchdog_spin_loop", RuntimeError(f"CPU {pct:.0f}% per {spin_streak * 5}s"))
-                except Exception:
-                    pass
-                spin_streak = 0
 
     t = threading.Thread(target=_tick, daemon=True)
     t.start()
@@ -1852,7 +1888,7 @@ if __name__ == "__main__":
     _start_loop_watchdog()
     init_db()
     try:
-        import task_tracker as _tt
+        from tools import task_tracker as _tt
         _tt.init_tasks()
         _rep = _tt.sync_from_git()  # riconciliazione obbligatoria all'avvio
         if _rep.get('created') or _rep.get('integrated') or _rep.get('warnings'):

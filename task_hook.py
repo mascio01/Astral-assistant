@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # task_hook.py - Dispatcher per gli hook git (policy Astral).
 #
 # Uso:
@@ -11,7 +11,7 @@
 import os
 import sys
 
-from core_io import BASE_DIR
+from core.core_io import BASE_DIR
 
 
 def _log_bypass(msg):
@@ -36,7 +36,7 @@ def cmd_commit_msg(msg_file):
     if first.startswith("Merge ") or first.startswith("Revert "):
         return 0
     try:
-        from task_tracker import validate_commit_msg, extract_task_id
+        from tools.task_tracker import validate_commit_msg, extract_task_id
     except Exception:
         return 0  # tracker non disponibile: non bloccare il lavoro
     if validate_commit_msg(msg):
@@ -48,7 +48,7 @@ def cmd_commit_msg(msg_file):
 def cmd_post_merge(squash_flag):
     """Solo notifica: nessuna scrittura su DB o file versionati."""
     try:
-        from task_tracker import extract_task_id
+        from tools.task_tracker import extract_task_id
         import subprocess
         r = subprocess.run(
             ["git", "log", "-1", "--pretty=%s"],

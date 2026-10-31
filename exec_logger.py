@@ -7,8 +7,8 @@ import time
 import threading
 from datetime import datetime
 
-from core_io import BASE_DIR, log_error
-from memory_meta import attach_event_from_exec
+from core.core_io import BASE_DIR, log_error
+from core.memory_meta import attach_event_from_exec
 
 _LOG_DIR = os.path.join(BASE_DIR, "logs")
 _LOG_PATH = os.path.join(_LOG_DIR, "executions.jsonl")

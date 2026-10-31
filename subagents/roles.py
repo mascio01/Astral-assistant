@@ -1,11 +1,11 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # subagents/roles.py - Esecuzione ruoli scout/reviewer: prompt + chiamata LLM + output strutturato.
 # Verdetto 2026-09-15: un file per ruolo, entro ~150 righe, read-only, profondita' 1.
 import os
 import json
 from datetime import datetime
 
-from core_io import console, log_error
+from core.core_io import console, log_error
 from llm_core import _get_client as _shared_client_factory
 from subagents.jobspec import get_ruolo, check_depth
 from llm_core import route_model

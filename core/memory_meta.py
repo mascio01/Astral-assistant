@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # memory_meta.py - Layer meta per il log azioni (Fase 1, design maggioranza consiglio)
 # Tabella memory_meta 1:1 con le righe di logs/executions.jsonl (log raw append-only,
 # MAI riscritto) + junction memory_tags. Payload per riferimento (src_ref), mai duplicato.
@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from core_io import BASE_DIR, log_error
+from core.core_io import BASE_DIR, log_error
 
 # P1: snapshot versionati in logs/, retention ultimi N
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
@@ -120,7 +120,7 @@ def _get_session_id():
     cosi' chat, telemetria e usage restano tracciabili separatamente.
     Fallback: file .session_id persistente per compatibilita' storica."""
     try:
-        from history_store import SESSION_ID as _hist_sid
+        from core.history_store import SESSION_ID as _hist_sid
         if _hist_sid:
             return _hist_sid
     except Exception:
@@ -462,10 +462,32 @@ _USAGE_DDL = """CREATE TABLE IF NOT EXISTS usage_log (
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
     total_tokens INTEGER,
+    cached_tokens INTEGER DEFAULT 0,
+    provider_name TEXT,
     ts_utc INTEGER
 )"""
 _USAGE_IDX = "CREATE INDEX IF NOT EXISTS idx_usage_session_ts ON usage_log(session_id, ts_utc)"
+# Migrazione idempotente: i DB creati prima dell'introduzione di cached_tokens
+# non hanno la colonna, ma usage_stats/usage_rows la selezionano.
+_USAGE_MIGRATIONS = (
+    ("cached_tokens", "ALTER TABLE usage_log ADD COLUMN cached_tokens INTEGER DEFAULT 0"),
+    ("provider_name", "ALTER TABLE usage_log ADD COLUMN provider_name TEXT"),
+)
 _usage_ready = False
+
+
+def _ensure_usage_schema(c):
+    """Crea/migra la tabella usage_log. Idempotente, best-effort."""
+    c.execute(_USAGE_DDL)
+    c.execute(_USAGE_IDX)
+    have = {r[1] for r in c.execute("PRAGMA table_info(usage_log)")}
+    for col, ddl in _USAGE_MIGRATIONS:
+        if col not in have:
+            try:
+                c.execute(ddl)
+            except Exception:
+                pass
+    c.commit()
 
 
 def _uget(usage, key, default=0):
@@ -475,7 +497,7 @@ def _uget(usage, key, default=0):
     return getattr(usage, key, default)
 
 
-def record_usage(model, usage, session_id=None):
+def record_usage(model, usage, session_id=None, provider=None):
     """Registra i token di una risposta (response.usage). Best-effort: mai solleva.
     Silenzioso per design (Fase 3): nessun print, nessun console output."""
     try:
@@ -485,19 +507,28 @@ def record_usage(model, usage, session_id=None):
         pt = int(_uget(usage, "prompt_tokens", 0) or 0)
         ct = int(_uget(usage, "completion_tokens", 0) or 0)
         tt = int(_uget(usage, "total_tokens", 0) or (pt + ct))
+        # Token di prompt serviti dalla cache del provider: possono arrivare
+        # come campo diretto o annidati in prompt_tokens_details.
+        cached = _uget(usage, "cached_tokens", None)
+        if cached is None:
+            det = _uget(usage, "prompt_tokens_details", None)
+            if det is not None:
+                cached = _uget(det, "cached_tokens", 0)
+        cached = max(0, min(int(cached or 0), pt))
         sid = session_id or _get_session_id()
         with _LOCK:
             c = _conn()
             try:
                 if not _usage_ready:
-                    c.execute(_USAGE_DDL)
-                    c.execute(_USAGE_IDX)
-                    c.commit()
+                    _ensure_usage_schema(c)
                     _usage_ready = True
                 c.execute("INSERT INTO usage_log "
-                          "(session_id, model, prompt_tokens, completion_tokens, total_tokens, ts_utc) "
-                          "VALUES (?,?,?,?,?,?)",
-                          (sid, str(model or "unknown")[:120], pt, ct, tt, int(time.time())))
+                          "(session_id, model, prompt_tokens, completion_tokens, total_tokens,"
+                          " cached_tokens, provider_name, ts_utc) VALUES (?,?,?,?,?,?,?,?)",
+                          (sid, str(model or "unknown")[:120], pt, ct, tt,
+                           cached,
+                           (str(provider)[:80] if provider else None),
+                           int(time.time())))
                 c.commit()
             finally:
                 c.close()
@@ -517,24 +548,26 @@ def usage_stats(days=7, session_id=None):
     with _LOCK:
         c = _conn()
         try:
-            c.execute(_USAGE_DDL)
-            c.commit()
+            _ensure_usage_schema(c)
             rows = c.execute(
-                "SELECT model, COUNT(*), SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens) "
+                "SELECT model, COUNT(*), SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), "
+                "SUM(cached_tokens) "
                 "FROM usage_log WHERE ts_utc >= ?" + sid_clause + " GROUP BY model",
                 params).fetchall()
             tot = c.execute(
-                "SELECT SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens) "
+                "SELECT SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(cached_tokens) "
                 "FROM usage_log WHERE ts_utc >= ?" + sid_clause,
                 params).fetchone()
             return {
                 "days": days,
                 "by_model": [{"model": r[0], "calls": r[1],
                               "prompt_tokens": r[2] or 0, "completion_tokens": r[3] or 0,
-                              "total_tokens": r[4] or 0} for r in rows],
+                              "total_tokens": r[4] or 0, "cached_tokens": r[5] or 0}
+                             for r in rows],
                 "totals": {"prompt_tokens": tot[0] or 0,
                            "completion_tokens": tot[1] or 0,
-                           "total_tokens": tot[2] or 0},
+                           "total_tokens": tot[2] or 0,
+                           "cached_tokens": tot[3] or 0},
             }
         finally:
             c.close()
@@ -549,14 +582,15 @@ def usage_rows(days=7, session_id=None):
     with _LOCK:
         c = _conn()
         try:
-            c.execute(_USAGE_DDL)
-            c.commit()
+            _ensure_usage_schema(c)
             rows = c.execute(
-                "SELECT ts_utc, session_id, model, prompt_tokens, completion_tokens, total_tokens "
+                "SELECT ts_utc, session_id, model, prompt_tokens, completion_tokens, total_tokens,"
+                " COALESCE(cached_tokens, 0), provider_name "
                 "FROM usage_log WHERE ts_utc >= ?" + sid_clause + " ORDER BY ts_utc ASC",
                 params).fetchall()
             return [{"ts_utc": r[0], "session_id": r[1], "model": r[2],
                      "prompt_tokens": r[3] or 0, "completion_tokens": r[4] or 0,
-                     "total_tokens": r[5] or 0} for r in rows]
+                     "total_tokens": r[5] or 0, "cached_tokens": r[6] or 0,
+                     "provider_name": r[7]} for r in rows]
         finally:
             c.close()

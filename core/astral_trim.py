@@ -18,7 +18,7 @@ import os
 import sys
 
 try:
-    from memory_meta import next_global_counter, _get_session_id
+    from core.memory_meta import next_global_counter, _get_session_id
 except Exception:
     next_global_counter = None
     _get_session_id = None
@@ -42,9 +42,10 @@ BUDGET_MAX_CHARS = 8000       # budget caratteri alla cresta
 HARD_CAP_CHARS = 12000        # valvola di isteresi (cond. 2 verdetto)
 CP_LEDGER_MAX_LINES = 30      # cap globale del ledger fattuale
 CP_LINE_CAP = 160             # cap per singolo fatto
-CP_SECTIONS = ("OBIETTIVO", "DECISIONI", "ARTEFATTI", "APERTI", "CONTESTO")
+CP_SECTIONS = ("OBIETTIVO", "DECISIONI", "ARTEFATTI", "APERTI", "CONTESTO",
+               "CLAIM_NON_VERIFICATE")
 CP_SECTION_CAPS = {"OBIETTIVO": 2, "DECISIONI": 6, "ARTEFATTI": 6,
-                   "APERTI": 6, "CONTESTO": 10}
+                   "APERTI": 6, "CONTESTO": 10, "CLAIM_NON_VERIFICATE": 5}
 _CP_LEDGER_MARK = "[CHECKPOINT CONTESTO - ledger fattuale"
 # Prefisso comune a TUTTI i checkpoint (v1 e v2): _checkpoint_message() lo
 # antepone al contenuto. Riconoscere solo il prefisso specifico del ledger
@@ -230,12 +231,22 @@ def _harvest_facts(ledger, blocks_msgs):
                     continue
                 bullets = [l.strip() for l in txt.splitlines()
                            if l.strip().startswith(("- ", "* ", "\u2022 "))][:3]
+                # Difesa anti-allucinazione: una claim dell'assistant diventa
+                # 'fatto' solo se il blocco contiene almeno un tool result
+                # riuscito che la supporta. Altrimenti finisce in
+                # CLAIM_NON_VERIFICATE (visibile ma non promossa a verita').
+                has_ok_tool = any(
+                    _role(x) == "tool" and not _tool_result_failed(x)
+                    for x in blk
+                )
+                target = (_classify_fact if has_ok_tool
+                          else (lambda _b: "CLAIM_NON_VERIFICATE"))
                 if bullets:
                     for b in bullets:
-                        _ledger_add(ledger, _classify_fact(b),
+                        _ledger_add(ledger, target(b),
                                     b.lstrip("-*\u2022 ").strip()[:CP_LINE_CAP])
                 else:
-                    _ledger_add(ledger, _classify_fact(first), "A: " + first)
+                    _ledger_add(ledger, target(first), "A: " + first)
 
 
 def reset_session_state():
@@ -545,7 +556,7 @@ def safe_trim_context(messages, max_turns=6):
         return trim_context(messages, max_turns=max_turns)
     except Exception:
         try:
-            from history_store import compact_history_with_summary
+            from core.history_store import compact_history_with_summary
             return compact_history_with_summary(messages)
         except Exception:
             return messages
@@ -662,14 +673,14 @@ def _selftest():
     # F8: confronto col trimmer storico (correttezza: orfani generati)
     old_info = "n/a"
     try:
-        from history_store import compact_history_with_summary as old_compact
+        from core.history_store import compact_history_with_summary as old_compact
         old = old_compact(conv)
         old_info = f"chars={tot(old)} orphans={count_orphans(old)}"
     except Exception as e:
         old_info = f"skip ({e})"
 
     # B1: oscillazione della finestra (sinusoidale, non monotona)
-    import astral_trim as _self
+    from core import astral_trim as _self
     _self._TURNS_SEEN, _self._SESSION_GOAL = 0, None
     wins, long_conv = [], fake_conv(40, 200)
     for t in range(24):
@@ -705,6 +716,23 @@ def _selftest():
     cps = [m for m in oh if _self._is_checkpoint_msg(m)]
     if len(cps) != 1 or _self._CP_LEDGER_MARK not in (cps[0].get("content") or ""):
         fails.append("B5 checkpoint ledger assente/duplicato")
+
+    # B7: claim dell'assistant senza tool result -> CLAIM_NON_VERIFICATE
+    led7 = {k: [] for k in _self.CP_SECTIONS}
+    blk_no_tool = [{"role": "assistant",
+                    "content": "Ho fatto tutto:\n- File creato\n- Test passati"}]
+    _self._harvest_facts(led7, [blk_no_tool])
+    if not led7["CLAIM_NON_VERIFICATE"]:
+        fails.append("B7 claim non verificate non registrate")
+    if led7["ARTEFATTI"]:
+        fails.append("B7 claim senza tool promossa ad artefatto")
+    # B8: claim con tool result riuscito -> sezione normale
+    led8 = {k: [] for k in _self.CP_SECTIONS}
+    blk_ok = [{"role": "assistant", "content": "Fatto:\n- File creato"},
+              {"role": "tool", "content": '{"status": "ok"}'}]
+    _self._harvest_facts(led8, [blk_ok])
+    if led8["CLAIM_NON_VERIFICATE"]:
+        fails.append("B8 claim verificata finita in non-verificate")
 
     # B6: media piatta: su 2 cicli, chars medi ciclo2 <= ciclo1 * 1.10
     _self._TURNS_SEEN, _self._SESSION_GOAL = 0, None

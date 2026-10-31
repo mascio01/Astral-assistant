@@ -18,6 +18,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -58,6 +59,34 @@ def version():
         return None
 
 
+_HASH_JSON_RE = re.compile(r"^[0-9a-f]{64}\.json$")
+
+
+def _sweep_root_cache():
+    """Rimuove i residui di cache AST che graphify lascia nella root.
+
+    Alcune versioni della CLI scrivono la cache per-file (nome = sha256 del
+    path) nella cwd invece che in graphify-out/cache/. Qui ripuliamo solo i
+    file con nome hash a 64 hex: sono sempre cache rigenerabile, mai sorgenti.
+    Ritorna il numero di file rimossi.
+    """
+    removed = 0
+    try:
+        for name in os.listdir(ROOT):
+            if not _HASH_JSON_RE.match(name):
+                continue
+            path = os.path.join(ROOT, name)
+            try:
+                if os.path.isfile(path) and not os.path.islink(path):
+                    os.remove(path)
+                    removed += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return removed
+
+
 def _run(args, timeout):
     """Esegue `python -m graphify <args>`. Ritorna (rc, stdout, stderr)."""
     cmd = [_python(), "-m", "graphify"] + list(args)
@@ -66,6 +95,7 @@ def _run(args, timeout):
             cmd, cwd=ROOT, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout,
         )
+        _sweep_root_cache()
         return proc.returncode, proc.stdout or "", proc.stderr or ""
     except subprocess.TimeoutExpired:
         return -1, "", f"timeout dopo {timeout}s"

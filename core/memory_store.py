@@ -6,7 +6,7 @@ import sqlite3
 import os
 import re
 import time
-from core_io import BASE_DIR, log_error
+from core.core_io import BASE_DIR, log_error
 
 RECALL_DB = os.path.join(BASE_DIR, "recall.db")
 TELEMETRY_DB = os.path.join(BASE_DIR, "telemetry.db")
@@ -176,9 +176,11 @@ def init_db():
     try:
         conn = sqlite3.connect(RECALL_DB)
         conn.execute("CREATE TABLE IF NOT EXISTS recall (hash TEXT PRIMARY KEY, data BLOB, ts REAL, preview TEXT)")
+        conn.commit()
         conn.close()
         conn = sqlite3.connect(CHECKPOINT_DB)
         conn.execute("CREATE TABLE IF NOT EXISTS checkpoints (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, summary TEXT, words TEXT)")
+        conn.commit()
         conn.close()
         conn = sqlite3.connect(TELEMETRY_DB)
         conn.execute("CREATE TABLE IF NOT EXISTS telemetry ("
@@ -241,3 +243,26 @@ def maintain_memory(recall_days=RECALL_RETENTION_DAYS,
     except Exception as e:
         log_error("maintain_memory.checkpoints", e)
     return out
+
+
+# [SCHEMA-GUARD] Lo schema viene creato all'import del modulo, non solo in
+# __main__: prima di questo fix init_db() era invocato solo a astral.py:1881,
+# quindi ogni chiamante precoce (get_config, save_telemetry, checkpoint_*)
+# trovava il DB esistente ma senza tabelle -> sqlite3.OperationalError
+# "no such table: config/telemetry". init_db() e' idempotente (IF NOT EXISTS).
+_SCHEMA_READY = False
+
+
+def ensure_schema():
+    """Crea lo schema se non ancora fatto in questo processo. Idempotente."""
+    global _SCHEMA_READY
+    if not _SCHEMA_READY:
+        init_db()
+        _SCHEMA_READY = True
+    return _SCHEMA_READY
+
+
+try:
+    ensure_schema()
+except Exception as _e:  # pragma: no cover - non deve mai bloccare l'import
+    log_error("memory_store.ensure_schema", _e)

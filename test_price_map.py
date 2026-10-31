@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 # test_price_map.py - Copertura price_map: match esatto, catalogo, override, costi.
 # Standalone: "py test_price_map.py" (exit 1 se un test fallisce) e compatibile pytest.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import json
 import os
 import sys
@@ -11,9 +17,38 @@ import price_map as P
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
 
-def test_tabella_statica_vince_sul_catalogo():
-    # "deepseek" esiste sia in PRICES sia come prefisso nel catalogo: vince PRICES.
+def test_tabella_statica_usata_se_assente_dal_catalogo():
+    # "deepseek" non e' un ID del catalogo: si ricade sulla tabella statica.
     assert P.get_price("deepseek") == P.PRICES["deepseek"]
+
+
+def test_catalogo_vince_sulla_tabella_statica():
+    # Se l'ID esiste in entrambe le fonti, il catalogo (aggiornato) ha la
+    # precedenza: la tabella statica e' solo un fallback offline.
+    with Patcher() as p:
+        tmp = temp_dir()
+        cache = os.path.join(tmp, "catalog.json")
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump({"models": [
+                {"id": "deepseek", "prompt": 0.000009, "completion": 0.000011},
+            ]}, f)
+        p.set(P, "_CACHE_FILE", cache)
+        assert P.get_price("deepseek") == (9.0, 11.0)
+        cleanup(tmp)
+
+
+def test_override_utente_vince_su_tutto():
+    with Patcher() as p:
+        tmp = temp_dir()
+        cache = os.path.join(tmp, "catalog.json")
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump({"models": [
+                {"id": "deepseek", "prompt": 0.000009, "completion": 0.000011},
+            ]}, f)
+        p.set(P, "_CACHE_FILE", cache)
+        p.set(P, "_OVERRIDES", {"deepseek": (1.0, 2.0)})
+        assert P.get_price("deepseek") == (1.0, 2.0)
+        cleanup(tmp)
 
 
 def test_normalizzazione_case_e_spazi():
@@ -106,7 +141,7 @@ def test_override_utente_caricato_all_import():
     import importlib.util
     import shutil
     tmp = temp_dir()
-    sorgente = os.path.join(os.path.dirname(os.path.abspath(__file__)), "price_map.py")
+    sorgente = os.path.join(_ROOT_BOOT, "price_map.py")
     copia = os.path.join(tmp, "price_map.py")
     shutil.copyfile(sorgente, copia)
     with open(os.path.join(tmp, "prices_override.json"), "w", encoding="utf-8") as f:

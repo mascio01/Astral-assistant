@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # task_tracker.py - Registro task SQLite (verdetto consiglio: ibrido minimale)
 # Git = fonte unica per "cosa e' integrato"; questa tabella tiene SOLO i campi
 # NON derivabili da git: titolo, stato funzionale, esito test verificato, timestamp.
@@ -17,7 +17,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 
-from core_io import BASE_DIR, log_error
+from core.core_io import BASE_DIR, log_error
 
 # Stesso DB di memory_meta: un solo file, zero dipendenze nuove.
 TASKS_DB = os.path.join(BASE_DIR, "memory_meta.db")
@@ -86,6 +86,12 @@ def init_tasks():
             c.close()
 
 
+def _tests_dir():
+    """Cartella della suite: 'tests/' se esiste, altrimenti la root progetto."""
+    d = os.path.join(BASE_DIR, "tests")
+    return d if os.path.isdir(d) else BASE_DIR
+
+
 def _is_test_source(fn):
     """True per ogni file che fa parte del CODICE di test.
 
@@ -106,9 +112,9 @@ def _suite_hash():
     h = hashlib.sha256()
     found = 0
     try:
-        for fn in sorted(os.listdir(BASE_DIR)):
+        for fn in sorted(os.listdir(_tests_dir())):
             if _is_test_source(fn):
-                p = os.path.join(BASE_DIR, fn)
+                p = os.path.join(_tests_dir(), fn)
                 with open(p, "rb") as f:
                     h.update(fn.encode("utf-8"))
                     h.update(b"\0")
@@ -127,7 +133,7 @@ def _test_files():
     non in questo elenco.
     """
     try:
-        return sorted(fn for fn in os.listdir(BASE_DIR)
+        return sorted(fn for fn in os.listdir(_tests_dir())
                       if fn.startswith("test_") and fn.endswith(".py"))
     except Exception:
         return []
@@ -172,7 +178,7 @@ def _run_tests():
         try:
             r = subprocess.run(
                 [sys.executable, fn], capture_output=True, text=True,
-                encoding="utf-8", errors="replace", cwd=BASE_DIR, timeout=120,
+                encoding="utf-8", errors="replace", cwd=_tests_dir(), timeout=120,
             )
             if r.returncode != 0:
                 failed.append(f"{fn}: exit {r.returncode}")
@@ -436,6 +442,78 @@ def _branch_integrato():
     return None
 
 
+# --------------------------------------------------- guardrail anti-riuso ID
+
+_STOPWORDS = frozenset("""
+a ad al alla alle allo anche che chi con da dal dalla delle dei del di e ed
+gli i il in io la le lo ma mi ne nei nel nella no non o per piu se si sono su
+sul sulla tra un una uno vs
+""".split())
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _scope_tokens(text):
+    """Parole significative di un messaggio di commit (senza l'ID task)."""
+    t = _COMMIT_MSG_RE.sub(" ", (text or "").lower())
+    return {w for w in _WORD_RE.findall(t) if len(w) > 2 and w not in _STOPWORDS}
+
+
+def scope_similarity(nuovo, precedente):
+    """Quanta parte del vocabolario del NUOVO messaggio compare nel precedente.
+
+    Copertura asimmetrica (non Jaccard ne' overlap simmetrico): Jaccard
+    penalizzava i messaggi lunghi e l'overlap simmetrico premiava i messaggi
+    corti con una sola parola in comune (es. "integrazione"), generando falsi
+    negativi su temi completamente diversi.
+    """
+    tn, tp = _scope_tokens(nuovo), _scope_tokens(precedente)
+    if not tn or not tp:
+        return 0.0
+    return len(tn & tp) / float(len(tn))
+
+
+def commits_for_task(task_id):
+    """Messaggi dei commit che citano #<task_id>, dal piu' vecchio al piu' recente."""
+    ok, out = _git("log", "--pretty=format:%s")
+    if not ok:
+        return []
+    msgs = []
+    for line in out.splitlines():
+        m = _COMMIT_MSG_RE.search(line)
+        if m and int(m.group(1)) == int(task_id):
+            msgs.append(line.strip())
+    msgs.reverse()
+    return msgs
+
+
+def check_task_reuse(msg, threshold=0.5):
+    """Avviso NON bloccante se il messaggio ha uno scope diverso dai commit dello stesso ID.
+
+    Un ID task e' un contenitore di piu' commit sullo stesso tema: riusarlo per
+    lavori diversi rende la storia illeggibile (caso reale: #16 usato per 8
+    commit su graphify, guardia anti-degenerazione e Google Calendar).
+
+    Ritorna None se non c'e' nulla da segnalare, altrimenti la stringa d'avviso.
+    """
+    try:
+        tid = extract_task_id(msg)
+        if tid is None:
+            return None
+        precedenti = commits_for_task(tid)
+        if not precedenti:
+            return None
+        best = max(scope_similarity(msg, p) for p in precedenti)
+        if best >= threshold:
+            return None
+        return (
+            f"ID #{tid} gia' usato per {len(precedenti)} commit con scope diverso "
+            f"(similarita' max {best:.2f}). Valuta un nuovo ID con /task-new."
+        )
+    except Exception:
+        return None
+
+
 def sync_from_git():
     """Riconcilia i branch task/<id> reali con il registro.
 
@@ -512,6 +590,33 @@ def sync_from_git():
             report["warnings"].append(
                 f"task {t['id']} '{t['title']}' senza branch task/{t['id']}*"
             )
+    # 4) ID citati nei messaggi di commit ma assenti dal registro -> riga storica.
+    # Senza questo passo il DB ignorava gli ID esistiti solo nella storia git
+    # (#1,#2,#3,#6,#11,#12,#13,#15): il registro non rifletteva la realta'.
+    # I commit raggiungibili dal branch integrato SONO integrati per definizione.
+    if integrato:
+        ok4, out4 = _git("log", "--pretty=format:%s", integrato)
+        if ok4:
+            visti = {}
+            for line in out4.splitlines():
+                m = _COMMIT_MSG_RE.search(line)
+                if m:
+                    visti.setdefault(int(m.group(1)), line.strip())
+            with _LOCK:
+                c = _conn()
+                try:
+                    for tid, msg in sorted(visti.items()):
+                        row = c.execute("SELECT id FROM tasks WHERE id=?", (tid,)).fetchone()
+                        if row:
+                            continue
+                        titolo = msg.split(":", 1)[-1].strip()[:120] or f"Task {tid} (da git)"
+                        c.execute("BEGIN IMMEDIATE")
+                        c.execute("INSERT OR IGNORE INTO tasks(id, title) VALUES(?,?)", (tid, titolo))
+                        c.execute("UPDATE tasks SET status='integrated', ts_integrated=? WHERE id=?", (_now_utc(), tid))
+                        c.commit()
+                        report["created"].append(tid)
+                finally:
+                    c.close()
     return report
 
 

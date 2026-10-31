@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # routing_engine.py - Routing dinamico pesato dei modelli.
 # Dati REALI (dal 2026-09-14): qualita' da LiveBench (file statici livebench.ai)
 # intrecciata con OpenRouter (prezzi/contesti: FONTE UNICA per il costo);
@@ -21,8 +21,8 @@ import threading
 import time
 from datetime import datetime
 
-from core_io import log_error
-from budget_guard import check_credits
+from core.core_io import log_error
+from core.budget_guard import check_credits
 from price_map import cost_usd, get_price
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -98,8 +98,9 @@ _PERSONAL_LOCK = threading.RLock()
 # input ~5x piu' economico).
 ROUTING_POOL = [
     "deepseek/deepseek-v4-flash-0731",
-    "deepseek/deepseek-v4.1-flash",
+    "deepseek/deepseek-v4.1-flash-1017",
     "qwen/qwen3.7-flash",
+    "anthropic/claude-haiku-5.5",
 ]
 
 # Valori fittizi iniziali (scala 0-10; costo: 10 = piu' economico)
@@ -250,6 +251,12 @@ def save_telemetry(model_name, prompt_tokens, completion_tokens, total_tokens=No
         completion_tokens = int(completion_tokens or 0)
         total_tokens = int(total_tokens or (prompt_tokens + completion_tokens))
         conn = sqlite3.connect(TELEMETRY_DB, timeout=1)
+        # [SCHEMA-GUARD] Se il DB esiste ma la tabella no (creato da un'altra
+        # istanza o da una versione precedente), la creiamo qui invece di
+        # fallire con "no such table: telemetry".
+        conn.execute("CREATE TABLE IF NOT EXISTS telemetry ("
+                     "model_name TEXT, ts REAL, prompt_tokens INT, "
+                     "completion_tokens INT, total_tokens INT)")
         conn.execute("INSERT INTO telemetry VALUES (?,?,?,?,?)",
                      (model_name, time.time(), prompt_tokens, completion_tokens, total_tokens))
         conn.execute("DELETE FROM telemetry WHERE ts < ?", (time.time() - 90 * 86400,))
@@ -469,7 +476,11 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     """Modulatore operativo (scala score 0-10), volutamente piccolo rispetto ai benchmark."""
     bonus = 0.0
     is_0731 = model == "deepseek/deepseek-v4-flash-0731"
-    is_ds41 = model == "deepseek/deepseek-v4.1-flash"
+    # L'ID canonico porta il suffisso di release (-1017): accettiamo sia la
+    # forma con suffisso sia quella nuda, altrimenti la policy di costo non
+    # si applica al modello realmente in pool.
+    is_ds41 = model in ("deepseek/deepseek-v4.1-flash",
+                        "deepseek/deepseek-v4.1-flash-1017")
     code_complex = bool(features.get("code_complex"))
     # Categoria ragionamento: decide SOLO il benchmark reasoning. I modulatori
     # di policy sotto sono asimmetrici (premiano il 0731 di +0.10) e
@@ -564,7 +575,7 @@ def _hydrate_bench() -> None:
     global _POOL_CACHE, _POOL_CACHE_TS
     ok = False
     try:
-        from benchmark_data import get_models, pool_suggerito
+        from core.benchmark_data import get_models, pool_suggerito
         models = get_models()
         if models:
             _BENCH_CACHE = models
@@ -770,7 +781,7 @@ def _telemetry_costs(bench: dict) -> dict:
         return _TELEMETRY_COST_CACHE
     out = {name: {} for name in COST_WINDOWS}
     try:
-        from memory_meta import usage_rows
+        from core.memory_meta import usage_rows
         rows = usage_rows(days=max(COST_WINDOWS.values()) / 86400.0)
     except (OSError, sqlite3.Error, TypeError, ValueError):
         rows = []
@@ -971,7 +982,7 @@ def _token_stats(force: bool = False) -> dict:
         return _TOKEN_STATS_CACHE
     stats = {"prompt": 8000.0, "completion": 512.0, "n": 0}
     try:
-        from memory_meta import usage_rows
+        from core.memory_meta import usage_rows
         rows = usage_rows(days=30)
         prompt = sorted(int(r.get("prompt_tokens") or 0) for r in rows
                         if int(r.get("prompt_tokens") or 0) > 0)
@@ -1168,7 +1179,7 @@ def route(user_input: str, context=None) -> str:
 def _macro_categoria(categoria: str) -> str:
     """Mappa la categoria di routing alla macro LiveBench (es. codice -> coding)."""
     try:
-        from benchmark_data import GROUP_ROUTING
+        from core.benchmark_data import GROUP_ROUTING
         return GROUP_ROUTING.get(categoria, categoria)
     except Exception:
         return categoria
@@ -1223,7 +1234,7 @@ if __name__ == "__main__":
     ok = sum(1 for t, exp in golden if classify_input(t)[0] == exp)
     print(f"Golden set: {ok}/{len(golden)} corrette ({ok / len(golden):.0%})")
     try:
-        from benchmark_data import info
+        from core.benchmark_data import info
         print("Dati:", info())
     except Exception:
         pass

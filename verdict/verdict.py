@@ -17,7 +17,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.rule import Rule
 
-from core_io import console, log_error
+from core.core_io import console, log_error
 from verdict.schemas import Parere, VerdettoFinale
 from llm_core import _get_client as _shared_client_factory, print_telemetry
 
@@ -260,7 +260,7 @@ def _pesi_giudici() -> dict:
                 data = json.load(f)
             if data and time.time() - data.get("ts", 0) < BENCHMARK_TTL:
                 return data.get("pesi", PESI_GIUDICI_DEFAULT)
-        from memory_store import get_config
+        from core.memory_store import get_config
         url = (get_config("benchmark_url", "") or "").strip()
         if url:
             import urllib.request

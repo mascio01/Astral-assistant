@@ -1,8 +1,14 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # test_knowledge_map.py - Fase 1 (KM01-KM10 + G03): integrita' della knowledge map.
 # Copre: conservazione dei dati curati, migrazione v1, disponibilita' e freschezza
 # distinte, corruzione JSON, confinamento delle fonti, writer, ranking, budget.
 # Standalone: "py test_knowledge_map.py" e compatibile pytest. Offline, solo tempdir.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import json
 import os
 import sys
@@ -10,7 +16,7 @@ import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import knowledge_map as KM
+from core import knowledge_map as KM
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
 

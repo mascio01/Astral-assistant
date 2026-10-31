@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # tools_gateway.py - Gateway interno dei tool (pattern pi-mcp-adapter)
 # Registro + allowlist + namespace + descrizioni on-demand + timeout +
 # circuit breaker + kill switch. I tool esistenti (tools_exec, tools_scrape)
@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 
-from core_io import console
+from core.core_io import console
 from rich.markup import escape
 from exec_logger import log_execution
 from evidence import enrich_tool_result

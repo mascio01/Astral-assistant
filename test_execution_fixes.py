@@ -1,6 +1,12 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # test_execution_fixes.py - Fase 3 (G11, G12, G13, G15, G18, G19).
 # Offline: nessuna rete, nessun processo reale, solo tempdir e monkeypatch.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import os
 import subprocess
 import sys
@@ -18,8 +24,7 @@ def test_g11_riassunto_non_riesegue_il_comando():
     """Il riassunto deve consumare l'output GIA' catturato: la versione
     precedente riscriveva il comando PS su un .ps1 e lo rilanciava con -File,
     causando una SECONDA esecuzione (con side effect duplicati)."""
-    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "tools_exec.py"), encoding="utf-8").read()
+    src = open(os.path.join(_ROOT_BOOT, "tools_exec.py"), encoding="utf-8").read()
     # Nessuna riesecuzione: niente file .ps1 temporaneo (era il vettore del
     # secondo lancio).
     assert "mkstemp" not in src, "resta la scrittura del .ps1 per il riassunto"
@@ -164,8 +169,7 @@ def test_g15_fallimento_apre_il_circuit_breaker():
 
 # ------------------------------------------------------------------ G18 ---
 def test_g18_crash_runner_non_scrive_verdict_done():
-    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "verdict_runner.py"), encoding="utf-8").read()
+    src = open(os.path.join(_ROOT_BOOT, "verdict", "verdict_runner.py"), encoding="utf-8").read()
     # Il marker DONE deve essere condizionato a !failed: mai scritto dopo un crash.
     assert "if not failed:" in src
     assert "failed = True" in src
@@ -177,17 +181,18 @@ def test_g18_crash_simulato_non_produce_done():
     import shutil
     tmp = temp_dir()
     try:
-        base = os.path.dirname(os.path.abspath(__file__))
-        shutil.copyfile(os.path.join(base, "verdict_runner.py"),
-                        os.path.join(tmp, "verdict_runner.py"))
+        base = os.path.join(_ROOT_BOOT, "verdict")
+        # Layout attuale: il runner vive in verdict/, i file .verdict_* nella root.
         os.makedirs(os.path.join(tmp, "verdict"), exist_ok=True)
+        shutil.copyfile(os.path.join(base, "verdict_runner.py"),
+                        os.path.join(tmp, "verdict", "verdict_runner.py"))
         with open(os.path.join(tmp, "verdict", "__init__.py"), "w") as f:
             f.write("")
         with open(os.path.join(tmp, "verdict", "verdict.py"), "w") as f:
             f.write("def run_verdict(*a, **k):\n    raise RuntimeError('crash simulato')\n")
         with open(os.path.join(tmp, ".verdict_quesito.tmp"), "w") as f:
             f.write("domanda")
-        subprocess.run([sys.executable, os.path.join(tmp, "verdict_runner.py"), "lite"],
+        subprocess.run([sys.executable, os.path.join(tmp, "verdict", "verdict_runner.py"), "lite"],
                        cwd=tmp, timeout=60)
         out = ""
         out_path = os.path.join(tmp, ".verdict_out.txt")
@@ -208,17 +213,18 @@ def test_g18_successo_scive_verdict_done():
     import shutil
     tmp = temp_dir()
     try:
-        base = os.path.dirname(os.path.abspath(__file__))
-        shutil.copyfile(os.path.join(base, "verdict_runner.py"),
-                        os.path.join(tmp, "verdict_runner.py"))
+        base = os.path.join(_ROOT_BOOT, "verdict")
+        # Layout attuale: il runner vive in verdict/, i file .verdict_* nella root.
         os.makedirs(os.path.join(tmp, "verdict"), exist_ok=True)
+        shutil.copyfile(os.path.join(base, "verdict_runner.py"),
+                        os.path.join(tmp, "verdict", "verdict_runner.py"))
         with open(os.path.join(tmp, "verdict", "__init__.py"), "w") as f:
             f.write("")
         with open(os.path.join(tmp, "verdict", "verdict.py"), "w") as f:
             f.write("def run_verdict(*a, **k):\n    return 'VERDETTO OK'\n")
         with open(os.path.join(tmp, ".verdict_quesito.tmp"), "w") as f:
             f.write("domanda")
-        subprocess.run([sys.executable, os.path.join(tmp, "verdict_runner.py"), "lite"],
+        subprocess.run([sys.executable, os.path.join(tmp, "verdict", "verdict_runner.py"), "lite"],
                        cwd=tmp, timeout=60)
         out = open(os.path.join(tmp, ".verdict_out.txt"), encoding="utf-8").read()
         assert "VERDICT_DONE" in out, out
@@ -229,8 +235,7 @@ def test_g18_successo_scive_verdict_done():
 
 # ------------------------------------------------------------------ G19 ---
 def test_g19_taskkill_fallito_non_dichiarato_riuscito():
-    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "astral.py"), encoding="utf-8").read()
+    src = open(os.path.join(_ROOT_BOOT, "astral.py"), encoding="utf-8").read()
     assert "taskkill fallito" in src
     assert "res.returncode != 0" in src
 

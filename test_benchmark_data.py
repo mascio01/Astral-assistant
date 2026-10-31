@@ -1,6 +1,12 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # test_benchmark_data.py - Fase 2 (G02, G04): nome dei file LiveBench e
 # precedenza dei prezzi. Offline: nessuna rete, solo tempdir.
+# --- bootstrap path (file spostati in sottocartelle) ---
+import os as _os_boot, sys as _sys_boot
+_ROOT_BOOT = _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__)))
+if _ROOT_BOOT not in _sys_boot.path:
+    _sys_boot.path.insert(0, _ROOT_BOOT)
+# --- fine bootstrap ---
 import glob
 import json
 import os
@@ -8,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import benchmark_data as B
+from core import benchmark_data as B
 import price_map as P
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
@@ -83,17 +89,17 @@ def test_g02_release_incompleta_non_lascia_file_parziali():
         cleanup(tmp)
 
 
-def test_g04_catalogo_non_vince_sulla_tabella_statica():
-    # PRICES (listino curato) precede il catalogo OpenRouter: stessa chiave
-    # presente in entrambi, vince la tabella statica.
+def test_g04_catalogo_vince_sulla_tabella_statica():
+    # Il catalogo OpenRouter (aggiornato dal provider) precede la tabella
+    # statica: stessa chiave presente in entrambi, vince il catalogo.
     with Patcher() as p:
         tmp = temp_dir()
         cache = os.path.join(tmp, "catalog.json")
         with open(cache, "w", encoding="utf-8") as f:
-            json.dump({"models": [{"id": "deepseek", "prompt": 9.0,
-                                    "completion": 9.0}]}, f)
+            json.dump({"models": [{"id": "deepseek", "prompt": 0.000009,
+                                    "completion": 0.000011}]}, f)
         p.set(P, "_CACHE_FILE", cache)
-        assert P.get_price("deepseek") == P.PRICES["deepseek"]
+        assert P.get_price("deepseek") == (9.0, 11.0)
         # ID assente da PRICES: risolve dal catalogo, che espone $/token.
         with open(cache, "w", encoding="utf-8") as f:
             json.dump({"models": [{"id": "solo-catalogo", "prompt": 0.0000005,
@@ -109,8 +115,8 @@ def test_g04_documentazione_allineata_alla_precedenza_reale():
         assert voce in doc, voce
     # La precedenza e' documentata nello stesso ordine in cui e' applicata.
     assert doc.index("prices_override.json") \
-        < doc.index("price_map.prices") \
-        < doc.index(".or_models_cache.json")
+        < doc.index(".or_models_cache.json") \
+        < doc.index("price_map.prices")
     # Il catalogo non fa piu' match per sottostringa: nessuna promessa contraria.
     assert "non si usa il match per sottostringa" in doc
 
