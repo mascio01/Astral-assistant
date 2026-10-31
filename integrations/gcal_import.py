@@ -10,7 +10,7 @@ Ad ogni esecuzione chiede quale account e quale calendario usare.
 """
 import os, sys, json, argparse, datetime
 
-# Il modulo vive in residui/: credenziali e token stanno nella root del progetto.
+# Il modulo vive in integrations/: credenziali e token stanno nella root del progetto.
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CREDS = os.path.join(BASE, "credentials.json")
 TOKEN_DIR = os.path.join(BASE, ".gcal_tokens")
