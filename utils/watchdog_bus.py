@@ -40,6 +40,10 @@ NOTICE_TTL_S = 3600.0        # notifiche piu' vecchie di 1h non vengono mostrate
 DEDUP_WINDOW_S = 120.0       # stesso errore entro 2 min: non ripubblicato
 CLAIM_STALE_S = 900.0        # evento preso in carico e mai chiuso: rimesso in coda
 PROC_ALIVE_S = 30.0          # heartbeat oltre questa eta' = processo considerato morto
+EVENT_MAX_AGE_S = 1800.0     # evento piu' vecchio di 30 min: archiviato come stale
+FAIL_WINDOW_S = 3600.0       # finestra in cui contano i fallimenti di repair per target
+FAIL_THRESHOLD = 3           # fallimenti sullo stesso target: stop ai tentativi automatici
+FAIL_FILE = os.path.join(BUS, ".repair_failures.json")
 
 
 def _ensure():
@@ -142,11 +146,66 @@ def publish_event(error_text, error_type="unknown", context="", target_file="",
 
 
 def pending_events(limit=5):
-    """Eventi nuovi, dal piu' vecchio al piu' recente."""
+    """Eventi nuovi, dal piu' vecchio al piu' recente.
+
+    [FIX STALE] Un evento rimasto in coda oltre EVENT_MAX_AGE_S viene archiviato
+    in done/ come "stale" invece di essere riparato: dopo mezz'ora il contesto
+    e' cambiato (spesso la causa e' gia' stata corretta a mano) e un repair
+    automatico su un file sano applicherebbe patch distruttive.
+    """
     _ensure()
-    events = [e for e in _list_json(EVENTS) if e.get("status", "new") == "new"]
-    events.sort(key=lambda e: float(e.get("ts") or 0))
-    return events[:max(1, int(limit))]
+    now = time.time()
+    fresh = []
+    for e in _list_json(EVENTS):
+        if e.get("status", "new") != "new":
+            continue
+        age = now - float(e.get("ts") or 0)
+        if age > EVENT_MAX_AGE_S:
+            try:
+                close_event(e.get("id"), status="stale")
+            except Exception:
+                pass
+            continue
+        fresh.append(e)
+    fresh.sort(key=lambda e: float(e.get("ts") or 0))
+    return fresh[:max(1, int(limit))]
+
+
+def record_repair_failure(target_file):
+    """Registra un fallimento di repair per target (best-effort)."""
+    if not target_file:
+        return
+    _ensure()
+    key = os.path.basename(str(target_file))
+    now = time.time()
+    try:
+        data = _read_json(FAIL_FILE) or {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    stamps = [t for t in (data.get(key) or []) if now - float(t) < FAIL_WINDOW_S]
+    stamps.append(now)
+    data[key] = stamps
+    try:
+        _atomic_write_json(FAIL_FILE, data)
+    except Exception:
+        pass
+
+
+def repair_failures(target_file):
+    """Numero di fallimenti recenti di repair per il target indicato."""
+    if not target_file:
+        return 0
+    key = os.path.basename(str(target_file))
+    now = time.time()
+    try:
+        data = _read_json(FAIL_FILE) or {}
+    except Exception:
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    return len([t for t in (data.get(key) or []) if now - float(t) < FAIL_WINDOW_S])
 
 
 def claim_event(event_id, owner_pid=None):

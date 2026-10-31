@@ -44,6 +44,37 @@ import traceback
 from rich.console import Console
 from rich.markup import escape
 
+# [FIX ENC-1] La console legacy di Windows usa cp1252: qualunque carattere fuori
+# da quel charset (es. il braille dello spinner "dots" di rich, gli accenti nei
+# path, le emoji) fa esplodere lo stream con UnicodeEncodeError. L'errore veniva
+# pubblicato sul bus watchdog -> il repair loop crashava a sua volta -> nuovo
+# evento -> nuovo repair: loop autoalimentato che indicava llm_core.py come
+# colpevole mentre la causa era solo l'encoding della console.
+# Qui normalizziamo gli stream PRIMA di istanziare Console(): con errors="replace"
+# la scrittura non puo' piu' lanciare, al peggio perde un glyph.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if (_stream is not None
+                and hasattr(_stream, "reconfigure")
+                and (_stream.encoding or "").lower().replace("-", "") != "utf8"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+# [FIX ENC-2] Il reconfigure degli stream NON basta: in modalita' legacy_windows
+# rich non passa da sys.stdout ma scrive con la Win32 API (rich/_win32_console.py
+# -> write_styled -> cp1252.charmap_encode). La code page del processo resta
+# 1252 e il braille dello spinner esplode comunque. Portiamo la console fisica
+# a UTF-8 (65001): e' l'unico punto che copre entrambi i percorsi.
+try:
+    if sys.platform == "win32":
+        import ctypes
+        _k32 = ctypes.windll.kernel32
+        _k32.SetConsoleOutputCP(65001)
+        _k32.SetConsoleCP(65001)
+except Exception:
+    pass
+
 def _early_log(context, exc):
     """Fallback di logging per errori di import prima che log_error sia definita."""
     try:
@@ -83,7 +114,12 @@ def log_error(context, exc):
         # [WATCHDOG-BUS] L'errore viene pubblicato nel punto in cui nasce, con
         # contesto e traceback completi: il watchdog non deve piu' indovinare
         # leggendo le prime 30 colonne di una riga di log.
-        if not os.environ.get("ASTRAL_TEST_MODE"):
+        # [FIX ENC-3] Il riparatore stesso non deve pubblicare nuovi eventi:
+        # un suo errore (es. lo spinner che esplodeva in cp1252) generava un
+        # evento -> il watchdog avviava un altro repair -> nuovo errore: loop
+        # autoalimentato che indicava llm_core.py come colpevole mentre la
+        # causa era l'encoding della console.
+        if not os.environ.get("ASTRAL_TEST_MODE") and not os.environ.get("ASTRAL_IN_REPAIR"):
             try:
                 from utils import watchdog_bus as _bus
                 # Il pid d'origine viaggia con l'evento: e' il destinatario
@@ -163,23 +199,28 @@ def global_exception_handler(exc_type, exc_value, exc_tb):
             pass
     # [WATCHDOG-BUS] Il crash entra nel bus: qualunque processo Astral attivo
     # riceve la notifica e il leader puo' ripararlo con il contesto completo.
-    try:
-        from utils import watchdog_bus as _bus
-        _bus.publish_event(
-            error_text=error_msg,
-            error_type=getattr(exc_type, "__name__", "Crash"),
-            context="global_exception_handler",
-            target_file=_bus.target_from_traceback(error_msg),
-        )
-        # Notifica indirizzata a QUESTO processo: nessun'altra sessione
-        # deve ricevere l'avviso di un crash che non la riguarda.
-        _bus.publish_notice(
-            "crash", "Astral - Crash",
-            "Crash di un processo Astral: autoriparazione in corso.",
-            target_pid=os.getpid(),
-        )
-    except Exception:
-        pass
+    # In ASTRAL_TEST_MODE i crash sono quelli INTENZIONALI della suite
+    # (es. test_a09_crash_handler_survives_log_failure): pubblicarli farebbe
+    # partire una riparazione su codice sano. Stesso guard gia' presente in
+    # log_error, qui mancava.
+    if not os.environ.get("ASTRAL_TEST_MODE"):
+        try:
+            from utils import watchdog_bus as _bus
+            _bus.publish_event(
+                error_text=error_msg,
+                error_type=getattr(exc_type, "__name__", "Crash"),
+                context="global_exception_handler",
+                target_file=_bus.target_from_traceback(error_msg),
+            )
+            # Notifica indirizzata a QUESTO processo: nessun'altra sessione
+            # deve ricevere l'avviso di un crash che non la riguarda.
+            _bus.publish_notice(
+                "crash", "Astral - Crash",
+                "Crash di un processo Astral: autoriparazione in corso.",
+                target_pid=os.getpid(),
+            )
+        except Exception:
+            pass
     # Il recovery non dipende dal successo della scrittura del log.
     try:
         started = launch_self_repair(restart=True)

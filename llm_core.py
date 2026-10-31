@@ -826,7 +826,16 @@ def repair_watchdog():
 
     Resta invariato: single-flight del leader (lock O_EXCL con heartbeat),
     anti-storm con cooldown, watchdog stalla sul protocollo verdetto.
-    Non ferma mai il loop principale (self-healing)."""
+    Non ferma mai il loop principale (self-healing).
+
+    Kill-switch: ASTRAL_DISABLE_WATCHDOG=1 disattiva SOLO la riparazione
+    automatica (nessun Popen di repair_loop.py). Default: watchdog attivo.
+    Serve durante lavoro manuale sul codice, quando un fix automatico
+    concorrente rischierebbe di sovrascrivere le modifiche in corso."""
+    if os.environ.get("ASTRAL_DISABLE_WATCHDOG") == "1":
+        safe_print("[watchdog] disattivato (ASTRAL_DISABLE_WATCHDOG=1)")
+        return
+
     def _watch():
         lock_file = os.path.join(BASE_DIR, ".watchdog.lock")
         out_file = os.path.join(BASE_DIR, ".verdict_out.txt")
@@ -932,13 +941,30 @@ def repair_watchdog():
                     if events:
                         event = events[0]
                         last_repair = time.time()
-                        target = os.path.basename(event.get("target_file") or "?") or "?"
+                        target_path = event.get("target_file") or ""
+                        target = os.path.basename(target_path or "?") or "?"
+                        # [FIX LOOP] Circuit breaker per target: se il repair
+                        # automatico ha gia' fallito N volte su questo file,
+                        # l'evento viene chiuso come "skipped" invece di
+                        # rilanciare un altro tentativo (che riaprirebbe il loop).
+                        fails = bus.repair_failures(target_path)
+                        if fails >= bus.FAIL_THRESHOLD:
+                            safe_print("[watchdog] %s: %d repair falliti di recente, evento archiviato (intervento manuale richiesto)."
+                                       % (target, fails))
+                            try:
+                                bus.close_event(event.get("id"), status="skipped")
+                            except Exception:
+                                pass
+                            continue
                         safe_print("[watchdog] Errore rilevato da pid %s (%s in %s): avvio self-repair..."
                                    % (event.get("pid") or "?", event.get("error_type") or "?", target))
+                        _env = dict(os.environ)
+                        _env["ASTRAL_IN_REPAIR"] = "1"
                         subprocess.Popen(
                             [sys.executable, os.path.join(BASE_DIR, "repair_loop.py"),
                              "--event", str(event.get("id"))],
                             cwd=BASE_DIR,
+                            env=_env,
                             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                         )
             except Exception:

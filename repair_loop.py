@@ -447,6 +447,10 @@ def _run_repair(state: SelfRepairState) -> SelfRepairState:
 
 
 def _cli():
+    # [FIX ENC-3] Il riparatore non deve pubblicare eventi sul bus: se fallisce
+    # (es. errore di rendering) genererebbe un nuovo evento -> nuovo repair ->
+    # loop autoalimentato. core_io.log_error rispetta questo flag.
+    os.environ["ASTRAL_IN_REPAIR"] = "1"
     event_id = ""
     if "--event" in sys.argv:
         try:
@@ -480,6 +484,14 @@ def _cli():
         if event_id and event is None:
             return  # evento gia' preso in carico da un altro riparatore
         state = repair_event(event) if event is not None else repair_from_log()
+        # [FIX LOOP] Conta i fallimenti per target: dopo FAIL_THRESHOLD il
+        # watchdog smette di rilanciare repair automatici su quel file.
+        if state.status != "success":
+            try:
+                from utils import watchdog_bus as _bus
+                _bus.record_repair_failure(state.file_path)
+            except Exception:
+                pass
         summary = {"status": state.status, "file": state.file_path,
                    "attempts": state.attempts, "error_type": state.error_type,
                    "last_error": state.last_error, "audit": state.audit_trail,

@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core_io import BASE_DIR
+from core.core_io import BASE_DIR
 
 
 def _git(*args):
