@@ -65,7 +65,9 @@ def test_g08_ui_esportata():
 # ------------------------------------------------------------------ G09 ---
 def test_g09_config_error_non_silenzioso():
     """Il salvataggio config non deve fallire in silenzio: l'errore va segnalato."""
-    src = open(os.path.join(_ROOT_BOOT, "astral.py"), encoding="utf-8").read()
+    # [P2 audit azione ciclo1] Il REPL (e quindi il salvataggio config) vive
+    # ora in core/repl_engine.py: il fix G09 va cercato li'.
+    src = open(os.path.join(_ROOT_BOOT, "core", "repl_engine.py"), encoding="utf-8").read()
     assert "Impossibile salvare la config" in src, "errore config ancora silenzioso"
     assert "save_config_model" in src, "manca il log dell'errore config"
 
