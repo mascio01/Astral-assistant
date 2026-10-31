@@ -1,0 +1,13 @@
+keys primo endpoint: ['provider', 'prompt', 'completion', 'latency', 'throughput', 'uptime_5m', 'uptime_1d', 'status', 'quantization', 'context_length']
+{
+ "provider": "OpenInference",
+ "prompt": 2e-08,
+ "completion": 1e-06,
+ "latency": null,
+ "throughput": null,
+ "uptime_5m": 100,
+ "uptime_1d": 99.30555555555556,
+ "status": 0,
+ "quantization": "fp4",
+ "context_length": 1048576
+}

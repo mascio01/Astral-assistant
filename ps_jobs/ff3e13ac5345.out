@@ -1,0 +1,12 @@
+  ok   test_km06_payload_entro_il_budget
+  ok   test_km06_snapshot_ha_generation_id_e_conteggi
+  ok   test_km07_pattern_non_autorizzato_rifiutato
+  ok   test_km07_symlink_rifiutato
+  ok   test_km08_scritture_concorrenti_producono_json_valido
+  ok   test_km08_refresh_non_tocca_snapshot_a_catalogo_invalido
+  ok   test_km09_topic_allineati_alle_fonti
+  ok   test_km10_diagnostica_e_status
+  ok   test_km10_lookup_espone_snapshot_degradato
+  FAIL test_g03_refresh_leggero_saltato_se_nulla_e_cambiato
+  ok   test_g03_invalidazione_esplicita
+FAIL test_knowledge_map: 2/23 test falliti: test_km02_disponibilita_esplicita, test_g03_refresh_leggero_saltato_se_nulla_e_cambiato

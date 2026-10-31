@@ -9,7 +9,7 @@ import time
 from core.core_io import _early_log, console, install_exception_hooks, launch_self_repair, log_error, set_session_color
 
 try:
-    import stt_integration
+    from ui import stt_integration
 except Exception as e:
     stt_integration = None
     _early_log("import stt_integration", e)
@@ -64,7 +64,7 @@ except Exception as _ui_e:
     def ui_error(text):
         return f"[bold orange_red1]{_ui_escape(text)}[/]"
 
-from loop_detector import LoopDetector
+from ui.loop_detector import LoopDetector
 
 
 # --- [ANTI-LOOP] Modello soft-limit + budget token sul ciclo agentico ----------
@@ -180,7 +180,7 @@ def _log_loop_diagnostic(user_input, used_model, rounds, cap, reason="hard_stop"
 
 
 try:
-    import voice_feedback
+    from ui import voice_feedback
 except Exception:
     voice_feedback = None  # indicatore visivo opzionale: mai bloccare il REPL
 
@@ -210,7 +210,7 @@ def _sys_notify(title, message, kind="info", force=False):
     catturato dal try/except, e nessun toast partiva mai da astral.py.
     """
     try:
-        import sys_notify
+        from ui import sys_notify
         return sys_notify.notify(title, message, kind=kind, force=force)
     except Exception:
         return False
@@ -1017,7 +1017,7 @@ def main():
                     _sc_refresh = "--refresh" in _sc
                     _sc_json = "--json" in _sc
                     try:
-                        from tools_scrape import scrape, _fmt
+                        from tools.tools_scrape import scrape, _fmt
                         _sc_res = scrape(_sc_url, refresh=_sc_refresh,
                                          use_cache=not ("--no-cache" in _sc),
                                          respect_robots=not ("--no-robots" in _sc))
@@ -1164,7 +1164,7 @@ def main():
                 else:
                     # Servizio unico: avvio detached + attesa bounded (verdict_launcher).
                     try:
-                        import verdict_launcher as _vl
+                        from verdict import verdict_launcher as _vl
                         _dossier = _build_verdict_input(quesito, messages)
                         _started = _vl.start_verdict(quesito, _v_profilo, dossier=_dossier)
                         if _started.get('error'):

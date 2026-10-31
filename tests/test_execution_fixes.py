@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import llm_core as L
-import tools_exec as E
+from tools import tools_exec as E
 import tools_gateway as G
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
@@ -24,7 +24,7 @@ def test_g11_riassunto_non_riesegue_il_comando():
     """Il riassunto deve consumare l'output GIA' catturato: la versione
     precedente riscriveva il comando PS su un .ps1 e lo rilanciava con -File,
     causando una SECONDA esecuzione (con side effect duplicati)."""
-    src = open(os.path.join(_ROOT_BOOT, "tools_exec.py"), encoding="utf-8").read()
+    src = open(os.path.join(_ROOT_BOOT, "tools", "tools_exec.py"), encoding="utf-8").read()
     # Nessuna riesecuzione: niente file .ps1 temporaneo (era il vettore del
     # secondo lancio).
     assert "mkstemp" not in src, "resta la scrittura del .ps1 per il riassunto"

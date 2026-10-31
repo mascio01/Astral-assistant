@@ -1,0 +1,7 @@
+In riga:1 car:115
++ ... ; cd "C:\Users\Nicolò\Astral Assistant"; py agenda_multi.py < NUL > s ...
++                                                                 ~
+Operatore '<' riservato per utilizzi futuri.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : RedirectionNotSupported
+ 

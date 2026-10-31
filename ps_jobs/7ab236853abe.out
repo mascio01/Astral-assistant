@@ -1,0 +1,49 @@
+=== validazione pattern (355-375) ===
+355:     sources = record.get("sources", [])
+356:     if not isinstance(sources, list):
+357:         problems.append("sources deve essere una lista")
+358:         return problems
+359:     for source in sources:
+360:         if not isinstance(source, dict):
+361:             problems.append("sorgente non valida (non oggetto)")
+362:             continue
+363:         pattern = source.get("pattern")
+364:         if not isinstance(pattern, str) or not pattern.strip():
+365:             problems.append("sorgente senza pattern")
+366:         elif not any(fnmatch.fnmatch(pattern.lower(), allowed.lower())
+367:                      for allowed in _ALLOWED_PATTERNS):
+368:             problems.append("pattern non autorizzato: %s" % pattern)
+369:         if source.get("role") and source["role"] not in VALID_ROLES:
+370:             problems.append("ruolo non ammesso: %s" % source.get("role"))
+371:         days = source.get("freshness_days")
+372:         if days is not None and (not isinstance(days, int) or isinstance(days, bool) or days <= 0):
+373:             problems.append("freshness_days non valido")
+374:     return problems
+375: 
+376: 
+=== seconda validazione (650-665) ===
+650:                 entry.setdefault(field, known.get(field, ""))
+651:             entry.pop("topic", None)
+652:         else:
+653:             # Record personale: va conservato integralmente.
+654:             sources = [item for item in record.get("sources", []) if isinstance(item, str)]
+655:             definition = [{"pattern": pattern, "role": "data", "required": False,
+656:                            "description": "fonte migrata da v1"}
+657:                           for pattern in sources
+658:                           if any(fnmatch.fnmatch(pattern.lower(), allowed.lower())
+659:                                  for allowed in _ALLOWED_PATTERNS)]
+660:             entry.setdefault("description", "(nota migrata da v1)")
+661:             entry["migrated_custom"] = True
+662:             entry["origin"] = "custom"
+663:             entry["sources"] = definition
+664:         local_records.append(entry)
+665:     existing_local, _ = _read_json(CATALOG_LOCAL)
+=== gitignore ===
+.lb_*
+.lb_sync_state.json
+# Knowledge Map: vista generata da selfmap.py (le fonti restano versionate)
+knowledge_map.json
+knowledge_map.md
+# Catalogo conoscenza e trascrizioni di sessione: solo locali, mai versionati
+knowledge_catalog.local.json
+# Output generato da graphify (knowledge graph) - MAI versionare

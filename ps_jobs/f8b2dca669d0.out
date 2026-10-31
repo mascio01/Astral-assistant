@@ -1,0 +1,35 @@
+def _catalog_raw():
+    """(prices, cache_read) dal catalogo OpenRouter, con memo su mtime+size.
+
+    prices:      {model_id: (prompt_usd_mtok, completion_usd_mtok)}
+    cache_read:  {model_id: usd_mtok} prezzo input servito da cache provider.
+    """
+    try:
+        st = os.stat(_CACHE_FILE)
+        key = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {}, {}
+    if _CATALOG_MEMO["key"] == key:
+        return _CATALOG_MEMO["prices"], _CATALOG_MEMO["cache_read"]
+    prices, cache_read = {}, {}
+    try:
+        with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for item in data.get("models", []):
+            mid = item.get("id")
+            if not mid or item.get("prompt") is None or item.get("completion") is None:
+                continue
+            k = str(mid).lower()
+            prices[k] = (float(item["prompt"]) * 1_000_000,
+                         float(item["completion"]) * 1_000_000)
+            cr = item.get("input_cache_read")
+            if cr is not None:
+                try:
+                    cache_read[k] = float(cr) * 1_000_000
+                except (TypeError, ValueError):
+                    pass
+    except (OSError, ValueError, TypeError, KeyError):
+        return {}, {}
+    _CATALOG_MEMO.update({"key": key, "prices": prices, "cache_read": cache_read})
+    return prices, cache_read
+

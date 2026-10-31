@@ -1,0 +1,31 @@
+=== catalogo api_pricing ===
+41: DEFAULT_CATALOG = {
+42:     "schema_version": SCHEMA_VERSION,
+43:     "records": [
+44:         {
+45:             "id": "api_pricing", "topic": "Tariffe API e costi modelli",
+46:             "aliases": ["tariffe", "prezzi", "costi", "api pricing", "listino"],
+47:             "description": "Statistiche e costi dei modelli usati per routing e budget.",
+48:             "how_to_read": "Verificare timestamp e file originale prima di decisioni economiche.",
+49:             "caveats": "I prezzi possono essere incompleti o cambiare lato provider.",
+50:             "review_due": "", "status": "active",
+51:             "related_ids": ["model_benchmarks", "routing_history"],
+52:             "precedence": "prices_override.json > price_map.PRICES > .or_models_cache.json",
+53:             "sources": [
+54:                 {"id": "lb_cost", "pattern": ".lb_cost_*.csv", "role": "data",
+55:                  "required": False, "freshness_days": 30,
+56:                  "description": "Costi osservati LiveBench."},
+57:                 {"id": "lb_table", "pattern": ".lb_table_*.csv", "role": "data",
+58:                  "required": True, "freshness_days": 30,
+59:                  "description": "Tabella punteggi LiveBench."},
+60:                 {"id": "or_cache", "pattern": ".or_models_cache.json", "role": "data",
+61:                  "required": True, "freshness_days": 7,
+62:                  "description": "Cache listino OpenRouter (campo ts come data fonte)."},
+63:                 {"id": "price_map", "pattern": "price_map.py", "role": "interpretation",
+64:                  "required": True, "description": "Prezzi effettivamente usati da Astral."},
+65:                 {"id": "prices_override", "pattern": "prices_override.json",
+66:                  "role": "override", "required": False,
+67:                  "description": "Override utente dei prezzi (se presente)."},
+68:             ],
+69:         },
+70:         {

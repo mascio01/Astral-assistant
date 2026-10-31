@@ -1,0 +1,45 @@
+409: # --- Fonti: confinamento e metadati (KM02, KM03, KM07) -----------------------
+410: def _resolve_source(pattern):
+411:     """Risolve un pattern nella sola ROOT; rifiuta symlink e uscite dal confine."""
+412:     root_abs = os.path.realpath(ROOT)
+413:     found = []
+414:     try:
+415:         names = os.listdir(ROOT)
+416:     except OSError as exc:
+417:         return found, "unreadable:%s" % type(exc).__name__
+418:     for name in names:
+419:         if not fnmatch.fnmatch(name.lower(), pattern.lower()):
+420:             continue
+421:         full = os.path.join(ROOT, name)
+422:         if os.path.islink(full):
+423:             found.append({"path": name, "allowed": False, "reason": "symlink_not_allowed"})
+424:             continue
+425:         real = os.path.realpath(full)
+426:         try:
+427:             inside = os.path.commonpath([real, root_abs]) == root_abs
+428:         except ValueError:
+429:             inside = False
+430:         if not inside:
+431:             found.append({"path": name, "allowed": False, "reason": "outside_root"})
+432:             continue
+433:         found.append({"path": name, "allowed": True, "reason": ""})
+434:     return sorted(found, key=lambda item: item["path"]), ""
+435: 
+436: 
+437: def _source_updated_at(name, path):
+438:     """Data autorevole della fonte quando disponibile (KM03); altrimenti ''."""
+439:     fields = {".or_models_cache.json": "ts", ".lb_sync_state.json": "synced"}
+440:     field = fields.get(name)
+441:     if not field:
+442:         return ""
+443:     try:
+444:         if os.path.getsize(path) > 2 * 1024 * 1024:
+445:             return ""
+446:         with open(path, encoding="utf-8-sig") as stream:
+447:             data = json.load(stream)
+448:     except (OSError, ValueError, UnicodeDecodeError):
+449:         return ""
+450:     if not isinstance(data, dict):
+451:         return ""
+452:     try:
+453:         stamp = datetime.datetime.fromtimestamp(float(data.get(field)),

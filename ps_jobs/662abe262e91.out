@@ -1,0 +1,32 @@
+467:         stat = os.stat(path)
+468:     except OSError as exc:
+469:         meta["reason"] = type(exc).__name__
+470:         return meta
+471:     meta["size_bytes"] = stat.st_size
+472:     meta["mtime"] = datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+473:     meta["source_updated_at"] = _source_updated_at(name, path)
+474:     meta["observed_at"] = meta["source_updated_at"] or meta["mtime"]
+475:     try:
+476:         digest, size = _sha256_file(path)
+477:     except OSError as exc:
+478:         meta["reason"] = type(exc).__name__
+479:         return meta
+480:     if not digest:
+481:         meta["reason"] = "too_large"
+482:         meta["size_bytes"] = size
+483:         return meta
+484:     meta["sha256"] = digest
+485:     meta["available"] = True
+486:     if previous and previous.get("sha256") and previous["sha256"] != digest:
+487:         meta["changed_since_last_snapshot"] = True
+488:     return meta
+489: 
+490: 
+491: def _is_fresh(stamp, days, now):
+492:     if not stamp:
+493:         return False
+494:     try:
+495:         value = datetime.datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+496:     except ValueError:
+497:         return False
+498:     if value.tzinfo is None:

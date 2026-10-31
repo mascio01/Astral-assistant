@@ -1,0 +1,6 @@
+  ok   test_km09_topic_allineati_alle_fonti
+  ok   test_km10_diagnostica_e_status
+  ok   test_km10_lookup_espone_snapshot_degradato
+  ok   test_g03_refresh_leggero_saltato_se_nulla_e_cambiato
+  ok   test_g03_invalidazione_esplicita
+OK test_knowledge_map: 23 test

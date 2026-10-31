@@ -1,0 +1,43 @@
+def _endpoints_cache():
+    """Mappa {model_id_lower: [endpoint, ...]} dal catalogo OpenRouter.
+
+    Gli endpoint sono arricchiti da benchmark_data._fetch_endpoints; se la cache
+    e' vecchia o priva della chiave 'endpoints' la mappa risulta vuota e il
+    routing ricade sul prezzo aggregato.
+    """
+    try:
+        with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        out = {}
+        for item in data.get("models", []):
+            mid = item.get("id")
+            eps = item.get("endpoints")
+            if mid and eps:
+                out[str(mid).lower()] = eps
+        return out
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def provider_endpoints(model):
+    """Lista degli endpoint/provider per l'ID esatto del modello (o [])."""
+    if not model:
+        return []
+    return _endpoints_cache().get(str(model).strip().lower(), [])
+
+
+def _provider_weight(ep):
+    """Peso 0..1 di un provider combinando uptime, throughput e latenza.
+
+    Ogni metrica mancante non penalizza: si usa un valore neutro (0.5) cosi'
+    un provider senza telemetria resta valutabile ma non domina la media.
+    """
+    up = ep.get("uptime_1d")
+    if up is None:
+        up = ep.get("uptime_5m")
+    up_score = float(up) if isinstance(up, (int, float)) else 0.5
+    up_score = max(0.0, min(1.0, up_score))
+
+    tp = ep.get("throughput")
+    # Throughput tipico OpenRouter: ~10-200 tok/s. Normalizzazione log-satura.
+    if isinstance(tp, (int, float))

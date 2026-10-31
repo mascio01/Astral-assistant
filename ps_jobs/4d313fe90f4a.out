@@ -1,0 +1,14 @@
+api_pricing | avail: partial | fresh: expired | review: unreviewed
+    lb_table .lb_table_2026_06_25.csv avail= True obs= 2026-09-24T03:02:46
+    lb_table .lb_table_2026_10_14.csv avail= True obs= 2026-10-24T01:37:50
+    or_cache .or_models_cache.json avail= True obs= 2026-10-29T23:53:04+00:00
+    price_map price_map.py avail= True obs= 2026-10-30T01:39:22
+model_benchmarks | avail: partial | fresh: expired | review: unreviewed
+    lb_table .lb_table_2026_06_25.csv avail= True obs= 2026-09-24T03:02:46
+    lb_table .lb_table_2026_10_14.csv avail= True obs= 2026-10-24T01:37:50
+    lb_categories .lb_categories_2026_06_25.json avail= True obs= 2026-09-24T03:02:46
+    lb_categories .lb_categories_2026_10_14.json avail= True obs= 2026-10-24T01:37:50
+    lb_sync_state .lb_sync_state.json avail= True obs= 2026-10-29T23:53:04+00:00
+routing_history | avail: ready | fresh: fresh | review: unreviewed
+    personal_scores .routing_personal_scores.json avail= True obs= 2026-10-30T01:41:56
+    routing_audit .routing_audit.jsonl avail= True obs= 2026-10-30T01:48:32

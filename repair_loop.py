@@ -236,7 +236,7 @@ def auto_repair_graph(file_path: str, mode: str = "compile", max_attempts: int =
 
     Nodi: TestNode -> RouterNode -> LLMNode -> ToolNode -> ClearErrorNode -> retry.
     """
-    from tools_patch import apply_code_patch, test_python_file
+    from tools.tools_patch import apply_code_patch, test_python_file
 
     state = SelfRepairState(file_path=file_path, mode=mode, max_attempts=max_attempts)
     if not _is_allowed_target(file_path):
@@ -386,7 +386,7 @@ def repair_event(event: dict, max_attempts: int = 3) -> SelfRepairState:
 
 def _run_repair(state: SelfRepairState) -> SelfRepairState:
     """Ciclo diagnosi/patch/test/rollback condiviso dai due entry point."""
-    from tools_patch import apply_code_patch, test_python_file
+    from tools.tools_patch import apply_code_patch, test_python_file
 
     if not _is_allowed_target(state.file_path):
         state.status = "aborted"

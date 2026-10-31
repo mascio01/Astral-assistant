@@ -1,0 +1,6 @@
+109: STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+112: def read_static(name):
+113:     path = os.path.join(STATIC_DIR, name)
+157:     def do_GET(self):
+162:             html = read_static("index.html")
+170:             js = read_static("app.js")

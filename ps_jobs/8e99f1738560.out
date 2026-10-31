@@ -1,0 +1,17 @@
+# Cache benchmark (routing dati reali)
+.lb_*
+.or_models_cache.json
+.lb_sync_state.json
+.routing_audit.jsonl
+.routing_personal_scores.json
+# Knowledge Map: vista generata da selfmap.py (le fonti restano versionate)
+knowledge_map.json
+knowledge_map.md
+knowledge_catalog.local.json
+# Output generato da graphify (knowledge graph) - MAI versionare
+=== tracked? ===
+
+core/knowledge_map.py
+tests/test_knowledge_map.py
+
+

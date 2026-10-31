@@ -877,7 +877,7 @@ def repair_watchdog():
                     if ("VERDICT_DONE" not in content) and (age > STALL_TIMEOUT):
                         safe_print("[watchdog] Verdetto in stalla (>600s senza VERDICT_DONE): kill orfano + pulizia...")
                         try:
-                            import sys_notify as _sysn
+                            from ui import sys_notify as _sysn
                             _sysn.notify(
                                 "Astral - Watchdog",
                                 "Verdetto in stalla (>600s senza VERDICT_DONE): runner orfano terminato e file ripuliti.",
@@ -908,7 +908,7 @@ def repair_watchdog():
                     for notice in bus.read_notices():
                         safe_print("[watchdog] %s" % notice.get("message", ""))
                         try:
-                            import sys_notify as _sysn
+                            from ui import sys_notify as _sysn
                             _sysn.notify(
                                 notice.get("title") or "Astral - Watchdog",
                                 notice.get("message") or "",

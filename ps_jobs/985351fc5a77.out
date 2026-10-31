@@ -1,0 +1,39 @@
+def record_usage(model, usage, session_id=None):
+    """Registra i token di una risposta (response.usage). Best-effort: mai solleva.
+    Silenzioso per design (Fase 3): nessun print, nessun console output."""
+    try:
+        if usage is None:
+            return
+        global _usage_ready
+        pt = int(_uget(usage, "prompt_tokens", 0) or 0)
+        ct = int(_uget(usage, "completion_tokens", 0) or 0)
+        tt = int(_uget(usage, "total_tokens", 0) or (pt + ct))
+        sid = session_id or _get_session_id()
+        with _LOCK:
+            c = _conn()
+            try:
+                if not _usage_ready:
+                    c.execute(_USAGE_DDL)
+                    c.execute(_USAGE_IDX)
+                    c.commit()
+                    _usage_ready = True
+                c.execute("INSERT INTO usage_log "
+                          "(session_id, model, prompt_tokens, completion_tokens, total_tokens, ts_utc) "
+                          "VALUES (?,?,?,?,?,?)",
+                          (sid, str(model or "unknown")[:120], pt, ct, tt, int(time.time())))
+                c.commit()
+            finally:
+                c.close()
+    except Exception as e:
+        try:
+            log_error("memory_meta.usage", e)
+        except Exception:
+            pass
+
+
+def usage_stats(days=7, session_id=None):
+    """Aggregate token per finestra `days` (API di query, NON stampate).
+    Ritorna {'days', 'by_model': [...], 'totals': {...}}."""
+    since = int(time.time() - days * 86400)
+    sid_clause = " AND session_id=?" if session_id else ""
+    params = [since] + ([session_id] if session

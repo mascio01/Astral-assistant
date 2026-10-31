@@ -1,0 +1,15 @@
+253: errors.append("knowledge_catalog.json %s: uso i default + il locale" % state)
+258: errors.append("knowledge_catalog.local.json %s: personalizzazioni non caricate"
+264: errors.append("%s schema_version %s non supportata: ignorato" % (label, declared))
+280: errors.append("record %s non valido: %s" % (item["id"], "; ".join(item["problems"])))
+286: errors.append("ID duplicati ignorati: %s" % ", ".join(duplicated))
+713: errors.append("fonte richiesta mancante per %s: %s (%s)"
+716: errors.append("fonte rifiutata per %s: %s (%s)"
+725: "degraded": bool(errors) or catalog["state"] != "ok",
+796: "partial": snapshot["diagnostics"]["degraded"]})
+805: if diagnostics.get("degraded"):
+973: if diagnostics_data.get("degraded"):
+974: response["snapshot"] = {"degraded": True,
+985: def diagnostics():
+1013: "degraded": bool(data.get("diagnostics", {}).get("degraded"))},
+1031: snapshot["degraded"]))

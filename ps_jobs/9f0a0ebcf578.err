@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    k=os.environ['OR_KEY']
+      ~~~~~~~~~~^^^^^^^^^^
+  File "<frozen os>", line 709, in __getitem__
+KeyError: 'OR_KEY'

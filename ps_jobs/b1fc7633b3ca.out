@@ -1,0 +1,30 @@
+391:         box.write("knowledge_map.json", "{rotto")
+392:         response = KM.knowledge_map_lookup("tariffe")
+393:         assert response["snapshot"]["degraded"] is True
+394:         assert response["snapshot"]["generation_id"]
+395: 
+396: 
+397: # --- G03: refresh leggero e watcher -------------------------------------------
+398: def test_g03_refresh_leggero_saltato_se_nulla_e_cambiato():
+399:     with Sandbox() as box:
+400:         KM.refresh_knowledge_map()
+401:         first = box.snapshot()["generation_id"]
+402:         assert KM.refresh_if_needed(force=True)
+403:         KM._last["refresh_at"] = 0.0
+404:         assert KM.refresh_if_needed()
+405:         assert box.snapshot()["generation_id"] != first
+406:         stable = box.snapshot()["generation_id"]
+407:         KM.refresh_if_needed()
+408:         assert box.snapshot()["generation_id"] == stable, "refresh inutile eseguito"
+409:         box.touch("benchmark_data.py")
+410:         KM.refresh_if_needed()
+411:         assert box.snapshot()["generation_id"] != stable, "modifica non rilevata"
+412: 
+413: 
+414: def test_g03_invalidazione_esplicita():
+415:     with Sandbox() as box:
+416:         KM.refresh_knowledge_map()
+417:         first = box.snapshot()["generation_id"]
+418:         KM.invalidate()
+419:         assert box.snapshot()["generation_id"] != first
+420: 

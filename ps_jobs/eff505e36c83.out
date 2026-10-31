@@ -1,0 +1,35 @@
+163: def test_km03_freschezza_usa_data_fonte_e_policy():
+164:     with Sandbox() as box:
+165:         box.write_json(".or_models_cache.json", {"ts": 100.0, "models": []})
+166:         box.touch(".lb_table_2026_06_25.csv")
+167:         KM.refresh_knowledge_map()
+168:         pricing = box.record("api_pricing")
+169:         assert pricing["freshness"] == "expired", pricing["freshness"]
+170:         or_source = [item for item in pricing["sources"] if item["path"] == ".or_models_cache.json"][0]
+171:         assert or_source["source_updated_at"].startswith("1970-01-01")
+172:         assert or_source["observed_at"] == or_source["source_updated_at"]
+173: 
+174: 
+175: def test_km03_hash_cambiato_richiede_revisione():
+176:     with Sandbox() as box:
+177:         box.touch("price_map.py", "uno")
+178:         KM.refresh_knowledge_map()
+179:         data = box.snapshot()
+180:         for record in data["records"]:
+181:             record["semantic"]["reviewed_at"] = "2026-09-01T00:00:00+00:00"
+182:             record["semantic"]["reviewed_sources"] = {
+183:                 item["id"]: item["sha256"] for item in record["sources"]}
+184:         box.write_json("knowledge_map.json", data)
+185:         KM.refresh_if_needed(force=True)
+186:         assert box.record("api_pricing")["review"] == "current"
+187:         box.touch("price_map.py", "due")
+188:         KM.refresh_if_needed(force=True)
+189:         pricing = box.record("api_pricing")
+190:         assert pricing["review"] == "needs_review"
+191:         assert any(item.get("changed_since_last_snapshot") for item in pricing["sources"])
+192: 
+193: 
+194: # --- KM04: corruzione e struttura invalida ------------------------------------
+195: def test_km04_json_troncato_conserva_originale():
+196:     with Sandbox() as box:
+197:         box.write("knowledge_map.json", "{broken")

@@ -1,0 +1,13 @@
+=== scratch oauth ===
+
+=== python procs ===
+6656 :: python  astral.py
+4412 :: "C:\Users\Nicolò\AppData\Local\Python\pythoncore-3.14-64\python.exe"  astral.py
+15684 :: python  astral.py
+18792 :: "C:\Users\Nicolò\AppData\Local\Python\pythoncore-3.14-64\python.exe"  astral.py
+6116 :: "C:\Users\Nicolò\AppData\Local\Microsoft\WindowsApps\python.exe" oauth_login.py mascella.student 8765 
+13276 :: "C:\Users\Nicolò\AppData\Local\Microsoft\WindowsApps\python.exe" oauth_login.py mascio666 8766 
+18376 :: "C:\Users\Nicolò\AppData\Local\Python\pythoncore-3.14-64\python.exe"  oauth_login.py mascella.student 8765 
+12156 :: "C:\Users\Nicolò\AppData\Local\Microsoft\WindowsApps\python.exe" oauth_login.py nicolomascella 8767 
+13888 :: "C:\Users\Nicolò\AppData\Local\Python\pythoncore-3.14-64\python.exe"  oauth_login.py mascio666 8766 
+1808 :: "C:\Users\Nicolò\AppData\Local\Python\pythoncore-3.14-64\python.exe"  oauth_login.py nicolomascella 8767 

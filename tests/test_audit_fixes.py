@@ -21,7 +21,7 @@ from _test_support import Patcher, cleanup, run_all, temp_dir
 
 # --- A-01: nessuna interpolazione del path nel comando PowerShell -----------
 def test_a01_move_to_trash_no_interpolation():
-    import tools_exec as E
+    from tools import tools_exec as E
     captured = {}
 
     class FakeRes:
@@ -52,7 +52,7 @@ def test_a01_move_to_trash_no_interpolation():
 
 # --- A-02: validazione di ogni redirect prima di seguirlo -------------------
 def test_a02_safe_get_validates_each_hop():
-    import tools_scrape as S
+    from tools import tools_scrape as S
 
     class Resp:
         def __init__(self, status, location=None):
@@ -76,7 +76,7 @@ def test_a02_safe_get_validates_each_hop():
 
 
 def test_a02_safe_get_hop_limit():
-    import tools_scrape as S
+    from tools import tools_scrape as S
 
     class Resp:
         status_code = 302

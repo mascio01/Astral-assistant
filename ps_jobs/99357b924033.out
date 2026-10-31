@@ -1,0 +1,157 @@
+            qs = parse_qs(parsed.query)
+            try:
+                since = int(qs.get("since", ["0"])[0])
+            except ValueError:
+                since = 0
+            user = (qs.get("user", [""])[0] or "").strip()[:24]
+            touch_user(user)
+            prune_stale_users()
+            data = snapshot(since)
+            data["ok"] = True
+            self._json(data)
+            return
+
+        if path == "/health":
+            with _lock:
+                n_users = len(users)
+                n_msgs = len(_messages)
+            self._json({"ok": True, "users": n_users, "messages": n_msgs})
+            return
+
+        self._send(404, "not found", "text/plain; charset=utf-8")
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        payload = self._read_json()
+
+        if path == "/join":
+            user = str(payload.get("user", "")).strip()[:24]
+            if not user:
+                user = "Utente" + str(int(time.time()) % 1000)
+            touch_user(user)
+            add_message({"type": "system", "content": user + " \u00e8 entrato nella stanza."})
+            self._json({"ok": True, "user": user})
+            return
+
+        if path == "/leave":
+            user = str(payload.get("user", "")).strip()[:24]
+            if drop_user(user):
+                add_message({"type": "system", "content": user + " \u00e8 uscito."})
+            self._json({"ok": True})
+            return
+
+        if path == "/send":
+            user = str(payload.get("user", "")).strip()[:24]
+            mtype = payload.get("type")
+            touch_user(user)
+
+            if mtype == "text":
+                content = str(payload.get("content", ""))[:MAX_TEXT_LEN].strip()
+                if not content:
+                    self._json({"ok": False, "error": "testo vuoto"}, 400)
+                    return
+                add_message({"type": "text", "user": user, "content": content})
+                self._json({"ok": True})
+                return
+
+            if mtype == "file":
+                name = os.path.basename(str(payload.get("name", "file")))[:120] or "file"
+                mime = str(payload.get("mime", "application/octet-stream"))[:100]
+                data = payload.get("data", "")
+                if not isinstance(data, str) or not data:
+                    self._json({"ok": False, "error": "dati mancanti"}, 400)
+                    return
+                approx = len(data) * 3 // 4
+                if approx > MAX_FILE_BYTES:
+                    self._json({"ok": False, "error": "file oltre %d MB" % MAX_FILE_MB}, 413)
+                    return
+                add_message({"type": "file", "user": user, "name": name,
+                             "mime": mime, "data": data})
+                self._json({"ok": True})
+                return
+
+            self._json({"ok": False, "error": "tipo non valido"}, 400)
+            return
+
+        self._send(404, json.dumps({"ok": False, "error": "not found"}))
+
+
+def watchdog():
+    """Chiude il server quando la stanza resta vuota oltre EMPTY_GRACE."""
+    while True:
+        time.sleep(1.0)
+        prune_stale_users()
+        with _lock:
+            empty = not users
+            since = _empty_since[0]
+            started = _shutdown_started[0]
+        if empty and since is not None and not started:
+            if now() - since >= EMPTY_GRACE:
+                with _lock:
+                    _shutdown_started[0] = True
+                print("\n[Chat Hub] Stanza vuota da %ds: chiusura." % int(EMPTY_GRACE))
+                srv = _server_ref[0]
+                if srv is not None:
+                    threading.Thread(target=srv.shutdown, daemon=True).start()
+                return
+
+
+def open_browser(url):
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(url)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", url])
+        else:
+            subprocess.Popen(["xdg-open", url])
+    except Exception as exc:
+        print("[Chat Hub] Impossibile aprire il browser: %s" % exc)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Chat Hub - stanza locale")
+    parser.add_argument("--no-browser", action="store_true", help="Non aprire il browser automaticamente")
+    parser.add_argument("--port", type=int, default=None, help="Porta (sovrascrive CHAT_HUB_PORT)")
+    args = parser.parse_args()
+
+    port = args.port if args.port else PORT
+    try:
+        server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    except OSError as exc:
+        print("[Chat Hub] Porta %d occupata (%s). Provo la successiva..." % (port, exc))
+        server = ThreadingHTTPServer(("0.0.0.0", port + 1), Handler)
+        port = port + 1
+
+    server.daemon_threads = True
+    _server_ref[0] = server
+
+    ip = local_ip()
+    url_local = "http://127.0.0.1:%d/" % port
+    url_lan = "http://%s:%d/" % (ip, port)
+
+    print("=" * 52)
+    print("  CHAT HUB - stanza unica globale")
+    print("=" * 52)
+    print("  Locale : %s" % url_local)
+    print("  In rete: %s" % url_lan)
+    print("-" * 52)
+    print("  La stanza si chiude %ds dopo l'uscita dell'ultimo utente." % int(EMPTY_GRACE))
+    print("  Ctrl+C per terminare subito.")
+    print("=" * 52)
+
+    threading.Thread(target=watchdog, daemon=True).start()
+    if not args.no_browser:
+        threading.Timer(1.2, lambda: open_browser(url_local)).start()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[Chat Hub] Interrotto dall'utente.")
+    finally:
+        server.server_close()
+        print("[Chat Hub] Server chiuso.")
+
+
+if __name__ == "__main__":
+    main()

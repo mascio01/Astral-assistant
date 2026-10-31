@@ -1,0 +1,16 @@
+
+
+Path       : C:\Users\Nicolò\Astral Assistant\core\benchmark_data.py
+LineNumber : 631
+Line       : POOL_CANONICO = [
+
+Path       : C:\Users\Nicolò\Astral Assistant\core\benchmark_data.py
+LineNumber : 650
+Line       :     Selezione: SOLO tra i modelli di POOL_CANONICO con punteggi LiveBench reali,
+
+Path       : C:\Users\Nicolò\Astral Assistant\core\benchmark_data.py
+LineNumber : 656
+Line       :             if mid in POOL_CANONICO
+
+
+

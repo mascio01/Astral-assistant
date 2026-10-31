@@ -1,0 +1,45 @@
+170: def cost_usd(model, prompt_tokens, completion_tokens, cached_tokens=0):
+171:     """Costo totale USD della chiamata; None se prezzo sconosciuto.
+172: 
+173:     `cached_tokens` sono i token di prompt serviti dalla cache del provider:
+174:     vanno scorporati dal totale prompt e tariffati al prezzo di cache quando
+175:     noto. Se il prezzo di cache manca restano a prezzo pieno (stima alta ma
+176:     mai inferiore al vero). `cached_tokens` viene comunque limitato a
+177:     `prompt_tokens` perche' alcuni provider riportano valori incoerenti.
+178:     """
+179:     p = get_price(model)
+180:     if p is None:
+181:         return None
+182:     pt = int(prompt_tokens or 0)
+183:     ct = int(completion_tokens or 0)
+184:     cached = max(0, min(int(cached_tokens or 0), pt))
+185:     cr = get_cache_read_price(model) if cached else None
+186:     if cr is None:
+187:         # Nessun prezzo di cache noto: i token restano a prezzo pieno.
+188:         cr = p[0]
+189:     return ((pt - cached) / 1000000.0) * p[0] \
+190:         + (cached / 1000000.0) * cr \
+191:         + (ct / 1000000.0) * p[1]
+192: 
+193: 
+194: def all_prices():
+195:     """Lista [(match, prompt, completion)] ordinata alfabeticamente."""
+196:     return sorted((k, v[0], v[1]) for k, v in PRICES.items())
+197: 
+198: 
+199: # --- Provider OpenRouter: costo medio ponderato + shortlist -------------------
+200: # Blend input/output usato per confrontare i provider (coerente col resto del
+201: # progetto: 3 parti input per 1 di output).
+202: _BLEND_IN = 0.75
+203: _BLEND_OUT = 0.25
+204: # Pesi del "peso intelligente" di ogni provider nella media ponderata.
+205: # Uptime = affidabilita' (dominante), throughput = velocita', latenza = reattivita'.
+206: _W_UPTIME = 0.55
+207: _W_THROUGHPUT = 0.30
+208: _W_LATENCY = 0.15
+209: # Un provider con uptime sotto questa soglia e' considerato inaffidabile e
+210: # escluso dalla media (evita che un rivenditore instabile falsi il costo).
+211: _UPTIME_MIN = 0.90
+212: 
+213: 
+214: def _endpoints_cache():

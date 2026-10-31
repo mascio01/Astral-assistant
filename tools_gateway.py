@@ -411,12 +411,12 @@ def _h_rea_run(args):
 
 def _h_exec(name):
     def _h(args):
-        from tools_exec import _execute_tool_impl
+        from tools.tools_exec import _execute_tool_impl
         return _execute_tool_impl(name, args)
     return _h
 
 def _h_scrape(args):
-    from tools_scrape import scrape, _fmt, validate_url
+    from tools.tools_scrape import scrape, _fmt, validate_url
     url = args.get("url", "")
     if not url:
         return {"error": "Serve 'url'"}
@@ -429,10 +429,10 @@ def _h_scrape(args):
                respect_robots=not args.get("no_robots", False),
                max_chars=args.get("max_chars") or None)
     if args.get("links") and r.html:
-        from tools_scrape import estrai_links
+        from tools.tools_scrape import estrai_links
         r.links = estrai_links(r.html, r.url)
     if args.get("jsonld") and r.html:
-        from tools_scrape import estrai_jsonld
+        from tools.tools_scrape import estrai_jsonld
         r.jsonld = estrai_jsonld(r.html)
     r.html = ""
     return r.to_dict() if args.get("json") else _fmt(r)
@@ -474,7 +474,7 @@ def _h_ask_user_question(args):
                 return {"error": f"Opzione non valida nella domanda {index + 1}."}
             labels.append(label)
         try:
-            import sys_notify as _sysn
+            from ui import sys_notify as _sysn
             # Nessun force: vale il gate di focus di sys_notify, quindi il
             # toast parte solo se la finestra di Astral NON e' in primo piano.
             _sysn.notify("Astral - Serve una scelta",
@@ -598,7 +598,7 @@ def _h_tool_search(args):
 _READ_ONLY = {"scan_storage", "recall", "test_python_file", "tool_search"}
 
 def _build_schemas():
-    from tools_exec import tools
+    from tools.tools_exec import tools
     for t in tools:
         fn = t["function"]
         name = fn["name"]
@@ -857,7 +857,7 @@ def _register_knowmap():
 def _register_verdict():
     """Registra i tool del consiglio dei giudici. Il modello non deve mai
     ricostruire a mano il protocollo: avvio, attesa e stato sono incapsulati."""
-    import verdict_launcher as _vl
+    from verdict import verdict_launcher as _vl
 
     _register("run_verdict", "verdict",
               "Avvia il consiglio dei giudici in background (profilo 'standard' o 'lite') e ritorna subito. "

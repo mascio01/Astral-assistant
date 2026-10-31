@@ -1,0 +1,5 @@
+deepseek/deepseek-v4.1-flash       real= 12.818 noncache= 10.670 resid=  2.148 cachedTok=136025601 => prezzo_cache_implicito=0.0158 USD/Mtok | modello cacheR=0.0150
+deepseek/deepseek-v4-flash-0731    real=  6.622 noncache=  1.659 resid=  4.963 cachedTok=259554705 => prezzo_cache_implicito=0.0191 USD/Mtok | modello cacheR=0.0014
+openai/gpt-6-astra                 real=  1.967 noncache=  0.586 resid=  1.381 cachedTok=544250 => prezzo_cache_implicito=2.5381 USD/Mtok | modello cacheR=1.0000
+deepseek/deepseek-v4-pro           real=  0.230 noncache=  0.179 resid=  0.051 cachedTok=8237 => prezzo_cache_implicito=6.1747 USD/Mtok | modello cacheR=0.0180
+openai/gpt-4o-mini                 real=  0.221 noncache=  0.221 resid= -0.000 cachedTok=0 => prezzo_cache_implicito=nan USD/Mtok | modello cacheR=0.0750

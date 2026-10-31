@@ -1,0 +1,4 @@
+astral.py:278: from memory_meta import bootstrap_meta, record_usage
+astral.py:1499: record_usage(used_model, usage)  # Fase 3 UsageTracker (silenzioso)
+astral.py:1710: record_usage(followup_model, getattr(response, "usage", None))
+memory_meta.py:496: def record_usage(model, usage, session_id=None):

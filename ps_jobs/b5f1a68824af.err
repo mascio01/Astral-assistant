@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import ast;ast.parse(open('oauth_login.py',encoding='utf-8').read());print('SYNTAX_OK')
+               ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\AppData\Local\Python\pythoncore-3.14-64\Lib\ast.py", line 46, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+  File "<unknown>", line 1
+    \ufeff# -*- coding: utf-8 -*-
+    ^
+SyntaxError: invalid non-printable character U+FEFF

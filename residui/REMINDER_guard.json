@@ -1,0 +1,5 @@
+﻿{
+    "date":  "2026-10-26T01:41:42",
+    "script":  "reminders\\guard_check.ps1",
+    "task":  "controllo scatti guardia anti-degenerazione deepseek 4.1 flash (logs\\loop_diagnostics.jsonl)"
+}

@@ -1,0 +1,6 @@
+degraded: False
+errors: []
+warnings: []
+api_pricing partial expired | missing: ['.lb_cost_*.csv', 'prices_override.json']
+model_benchmarks ready expired | missing: []
+routing_history ready fresh | missing: []

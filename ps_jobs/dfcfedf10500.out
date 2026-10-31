@@ -1,0 +1,40 @@
+429:             inside = False
+430:         if not inside:
+431:             found.append({"path": name, "allowed": False, "reason": "outside_root"})
+432:             continue
+433:         found.append({"path": name, "allowed": True, "reason": ""})
+434:     return sorted(found, key=lambda item: item["path"]), ""
+435: 
+436: 
+437: def _source_updated_at(name, path):
+438:     """Data autorevole della fonte quando disponibile (KM03); altrimenti ''."""
+439:     fields = {".or_models_cache.json": "ts", ".lb_sync_state.json": "synced"}
+440:     field = fields.get(name)
+441:     if not field:
+442:         return ""
+443:     try:
+444:         if os.path.getsize(path) > 2 * 1024 * 1024:
+445:             return ""
+446:         with open(path, encoding="utf-8-sig") as stream:
+447:             data = json.load(stream)
+448:     except (OSError, ValueError, UnicodeDecodeError):
+449:         return ""
+450:     if not isinstance(data, dict):
+451:         return ""
+452:     try:
+453:         stamp = datetime.datetime.fromtimestamp(float(data.get(field)),
+454:                                                 datetime.timezone.utc)
+455:     except (TypeError, ValueError, OverflowError, OSError):
+456:         return ""
+457:     return stamp.replace(microsecond=0).isoformat()
+458: 
+459: 
+460: def _source_meta(name, definition, previous):
+461:     path = os.path.join(ROOT, name)
+462:     meta = {"id": definition["id"], "path": name.replace(os.sep, "/"),
+463:             "role": definition["role"], "required": definition["required"],
+464:             "available": False, "sha256": "", "size_bytes": 0, "mtime": "",
+465:             "source_updated_at": "", "observed_at": "", "reason": ""}
+466:     try:
+467:         stat = os.stat(path)
+468:     except OSError as exc:

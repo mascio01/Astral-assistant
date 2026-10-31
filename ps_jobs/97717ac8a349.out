@@ -1,0 +1,20 @@
+516:             c = _conn()
+517:             try:
+518:                 if not _usage_ready:
+519:                     _ensure_usage_schema(c)
+520:                     _usage_ready = True
+521:                 c.execute("INSERT INTO usage_log "
+522:                           "(session_id, model, prompt_tokens, completion_tokens, total_tokens,"
+523:                           " cached_tokens, ts_utc) VALUES (?,?,?,?,?,?,?)",
+524:                           (sid, str(model or "unknown")[:120], pt, ct, tt,
+525:                            cached, int(time.time())))
+526:                 c.commit()
+527:             finally:
+528:                 c.close()
+529:     except Exception as e:
+530:         try:
+531:             log_error("memory_meta.usage", e)
+532:         except Exception:
+533:             pass
+534: 
+535: 

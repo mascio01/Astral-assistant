@@ -1,0 +1,716 @@
+[2026-10-28 15:20:20] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\test_memory_fixes.py", line 37, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-28 15:20:30] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\test_memory_fixes.py", line 37, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-28 15:20:31] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 725, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\test_prompt_cache.py", line 61, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-28 15:20:31] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 725, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\test_prompt_cache.py", line 61, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-29 16:20:36] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\test_memory_fixes.py", line 37, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-29 16:20:36] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\test_prompt_cache.py", line 61, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-29 16:20:36] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\test_prompt_cache.py", line 61, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-29 16:21:54] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\test_memory_fixes.py", line 37, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-29 16:21:55] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\test_prompt_cache.py", line 61, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-29 16:21:55] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\test_prompt_cache.py", line 61, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 00:40:36] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 00:40:37] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 00:40:37] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 00:46:43] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 00:46:44] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 00:46:44] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 800, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:34:06] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 01:34:06] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:34:06] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:37:07] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 01:37:08] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:37:08] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:37:43] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 01:37:43] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:37:43] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:41:21] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 01:41:22] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:41:22] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:57:11] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 01:57:11] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:57:11] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:58:23] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-30 01:58:28] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-30 01:58:28] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:22:46] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 00:22:46] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:22:46] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:23:02] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:23:02] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:23:47] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 00:23:47] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:23:47] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:07] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:07] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:07] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:20] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:20] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:20] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:39] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:40] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:40] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:58] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:58] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 00:24:58] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 608, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:27:51] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:27:52] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:27:52] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:30:44] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:30:45] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:30:45] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:31:11] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:31:12] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:31:12] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:31:53] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:31:55] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:31:55] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:34:40] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:34:41] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:34:41] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:37:47] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:37:47] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:44:37] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:44:38] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:44:38] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:45:32] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:45:33] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:45:33] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:46:47] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:46:48] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:46:48] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:58:57] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:58:57] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:58:57] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:59:28] ERROR ([TEST] exec_logger.attach_meta): meta non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\exec_logger.py", line 85, in log_execution
+    attach_event_from_exec(str(tool), entry, ln)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_memory_fixes.py", line 43, in boom
+    raise RuntimeError("meta non disponibile")
+RuntimeError: meta non disponibile
+--------------------------------------------------
+[2026-10-31 02:59:28] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------
+[2026-10-31 02:59:28] ERROR ([TEST] bootstrap_signature): selfmap non disponibile
+Traceback (most recent call last):
+  File "C:\Users\Nicolò\Astral Assistant\llm_core.py", line 606, in _system_prompt_static
+    signature = context_signature()
+  File "C:\Users\Nicolò\Astral Assistant\tests\test_prompt_cache.py", line 67, in boom
+    raise RuntimeError("selfmap non disponibile")
+RuntimeError: selfmap non disponibile
+--------------------------------------------------

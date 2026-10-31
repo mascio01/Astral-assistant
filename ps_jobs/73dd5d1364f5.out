@@ -1,0 +1,26 @@
+73: def test_km01_refresh_conserva_custom_e_alias():
+101: def test_km01_migrazione_v1_senza_perdita():
+124: def test_km01_versione_futura_non_sovrascritta():
+134: def test_km02_disponibilita_esplicita():
+149: def test_km02_rimozione_fonte_segnalata():
+163: def test_km03_freschezza_usa_data_fonte_e_policy():
+175: def test_km03_hash_cambiato_richiede_revisione():
+195: def test_km04_json_troncato_conserva_originale():
+205: def test_km04_records_non_lista_non_crasha():
+217: def test_km05_ricerca_non_restituisce_tutto():
+232: def test_km05_record_archiviato_escluso():
+242: def test_km05_max_results_validato():
+253: def test_km06_payload_entro_il_budget():
+272: def test_km06_snapshot_ha_generation_id_e_conteggi():
+282: def test_km07_pattern_non_autorizzato_rifiutato():
+301: def test_km07_symlink_rifiutato():
+310: os.symlink(secret, link)
+312: return  # symlink non disponibili: test saltato (Windows senza privilegi)
+317: assert any("symlink" in item["reason"] for item in rejected), rejected
+324: def test_km08_scritture_concorrenti_producono_json_valido():
+348: def test_km08_refresh_non_tocca_snapshot_a_catalogo_invalido():
+359: def test_km09_topic_allineati_alle_fonti():
+377: def test_km10_diagnostica_e_status():
+389: def test_km10_lookup_espone_snapshot_degradato():
+398: def test_g03_refresh_leggero_saltato_se_nulla_e_cambiato():
+414: def test_g03_invalidazione_esplicita():

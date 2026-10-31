@@ -1,0 +1,4 @@
+74: "how_to_read": "Usare benchmark_data.py per la logica e i file LB per i dati osservati.",
+78: "precedence": "dati osservati (.lb_*) letti da benchmark_data.py",
+80: {"id": "benchmark_data", "pattern": "benchmark_data.py",
+118: "benchmark_data.py", "price_map.py", "knowledge_catalog.json",

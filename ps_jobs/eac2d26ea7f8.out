@@ -1,0 +1,8 @@
+deepseek/deepseek-v4.1-flash           real= 12.818 calc= 12.711 err=  -0.8% pt=176316070 ct=5527448 cached=136025601 aggP=0.020 aggC=1.000
+deepseek/deepseek-v4-flash-0731        real=  6.622 calc=  2.026 err= -69.4% pt=274316446 ct=1822654 cached=259554705 aggP=0.044 aggC=0.133
+openai/gpt-6-astra                     real=  1.967 calc=  1.130 err= -42.6% pt=644873 ct=3303 cached=544250 aggP=10.000 aggC=50.000
+deepseek/deepseek-v4-pro               real=  0.230 calc=  0.179 err= -22.1% pt=105325 ct=66039 cached=8237 aggP=0.216 aggC=0.432
+openai/gpt-4o-mini                     real=  0.221 calc=  0.221 err=  +0.0% pt=1187582 ct=70684 cached=0 aggP=0.150 aggC=0.600
+z-ai/glm-5.3                           real=  0.120 calc=  0.098 err= -17.8% pt=53048 ct=15521 cached=0 aggP=0.079 aggC=1.400
+openai/gpt-6-luna                      real=  0.101 calc=  0.060 err= -39.9% pt=2911133 ct=85096 cached=2658858 aggP=0.100 aggC=0.500
+moonshotai/kimi-k2.5                   real=  0.046 calc=  0.046 err=  +0.0% pt=26809 ct=12504 cached=5376 aggP=0.500 aggC=2.500

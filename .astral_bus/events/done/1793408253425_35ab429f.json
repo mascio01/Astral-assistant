@@ -1,0 +1,1 @@
+{"id": "1793408253425_35ab429f", "ts": 1793408253.4258764, "pid": 1, "slot": null, "context": "t/orfano", "error_type": "ImportError", "error_text": "ImportError: fake A", "target_file": "C:\\Users\\Nicolò\\Astral Assistant\\repair_loop.py", "digest": "2bf2eaf4f4f0d0c2", "status": "aborted", "claimed_by": 12900, "claimed_ts": 1793408253.6588433, "closed_ts": 1793408256.4541225}

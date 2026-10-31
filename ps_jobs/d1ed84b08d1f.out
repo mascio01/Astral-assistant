@@ -1,0 +1,56 @@
+134: def test_km02_disponibilita_esplicita():
+135:     with Sandbox() as box:
+136:         KM.refresh_knowledge_map()
+137:         pricing = box.record("api_pricing")
+138:         assert pricing["status"] == "active" and pricing["availability"] == "missing"
+139:         assert pricing["freshness"] == "unknown"
+140:         missing = {item["pattern"]: item for item in pricing["sources_missing"]}
+141:         assert missing[".or_models_cache.json"]["required"]
+142:         assert missing[".lb_table_*.csv"]["reason"] == "not_found"
+143:         box.touch("benchmark_data.py")
+144:         KM.refresh_if_needed(force=True)
+145:         benchmark = box.record("model_benchmarks")
+146:         assert benchmark["availability"] == "partial", benchmark["availability"]
+147: 
+148: 
+149: def test_km02_rimozione_fonte_segnalata():
+150:     with Sandbox() as box:
+151:         box.touch(".routing_personal_scores.json")
+152:         KM.refresh_knowledge_map()
+153:         os.remove(box.path(".routing_personal_scores.json"))
+154:         KM.refresh_if_needed(force=True)
+155:         removed = box.record("routing_history")["auto"]["removed_since_last_snapshot"]
+156:         assert [item["path"] for item in removed] == [".routing_personal_scores.json"]
+157:         assert removed[0]["sha256"], "evidenza della fonte rimossa persa"
+158:         kinds = [item["kind"] for item in KM.diagnostics()["problems"]]
+159:         assert "source_removed" in kinds
+160: 
+161: 
+162: # --- KM03: freschezza e revisione distinte ------------------------------------
+163: def test_km03_freschezza_usa_data_fonte_e_policy():
+=== g03 ===
+396: 
+397: # --- G03: refresh leggero e watcher -------------------------------------------
+398: def test_g03_refresh_leggero_saltato_se_nulla_e_cambiato():
+399:     with Sandbox() as box:
+400:         KM.refresh_knowledge_map()
+401:         first = box.snapshot()["generation_id"]
+402:         assert KM.refresh_if_needed(force=True)
+403:         KM._last["refresh_at"] = 0.0
+404:         assert KM.refresh_if_needed()
+405:         assert box.snapshot()["generation_id"] != first
+406:         stable = box.snapshot()["generation_id"]
+407:         KM.refresh_if_needed()
+408:         assert box.snapshot()["generation_id"] == stable, "refresh inutile eseguito"
+409:         box.touch("benchmark_data.py")
+410:         KM.refresh_if_needed()
+411:         assert box.snapshot()["generation_id"] != stable, "modifica non rilevata"
+412: 
+413: 
+414: def test_g03_invalidazione_esplicita():
+415:     with Sandbox() as box:
+416:         KM.refresh_knowledge_map()
+417:         first = box.snapshot()["generation_id"]
+418:         KM.invalidate()
+419:         assert box.snapshot()["generation_id"] != first
+420: 

@@ -1,0 +1,64 @@
+16: # Il modulo vive in core/: i cataloghi stanno nella root del progetto.
+17: ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+18: CATALOG_JSON = os.path.join(ROOT, "knowledge_catalog.json")
+19: CATALOG_LOCAL = os.path.join(ROOT, "knowledge_catalog.local.json")
+20: MAP_JSON = os.path.join(ROOT, "knowledge_map.json")
+21: MAP_MD = os.path.join(ROOT, "knowledge_map.md")
+22: LOCK_FILE = os.path.join(ROOT, ".knowledge_map.lock")
+116: # Pattern ammessi come fonte (KM07: confinamento). Solo la root del progetto.
+134: def _utc_now():
+138: def _sha256_file(path, limit=MAX_SOURCE_BYTES):
+150: def _atomic_write(path, content):
+171: def __init__(self, path=LOCK_FILE, timeout=LOCK_TIMEOUT):
+176: def __enter__(self):
+198: def __exit__(self, *exc):
+207: def _read_json(path):
+223: def _backup_corrupt(path, tag):
+235: def _dedup(items):
+246: def _load_catalog():
+300: def _merge_records(base, extra):
+329: def _merge_sources(base, extra):
+331: def key(item):
+339: def _validate_record(record):
+377: def _normalize_record(record):
+410: def _resolve_source(pattern):
+411: """Risolve un pattern nella sola ROOT; rifiuta symlink e uscite dal confine."""
+412: root_abs = os.path.realpath(ROOT)
+415: names = os.listdir(ROOT)
+421: full = os.path.join(ROOT, name)
+427: inside = os.path.commonpath([real, root_abs]) == root_abs
+431: found.append({"path": name, "allowed": False, "reason": "outside_root"})
+437: def _source_updated_at(name, path):
+460: def _source_meta(name, definition, previous):
+461: path = os.path.join(ROOT, name)
+491: def _is_fresh(stamp, days, now):
+503: def _record_view(record, previous_record, previous_exists):
+522: if names else "not_found")
+575: def _inherit_review(record, previous_record):
+589: def _review_state(record, resolved):
+605: def migrate_previous(data, state):
+681: def _previous_snapshot():
+692: def _snapshot_version(data):
+700: def build_snapshot(previous, previous_state, catalog, warnings=None):
+720: "generation_id": _generation_id(), "generated_at": _utc_now(), "root": ROOT,
+731: def catalog_hash(catalog):
+736: def _generation_id():
+738: global _generation_seq
+744: def _counts(records):
+753: def refresh_knowledge_map():
+800: def render_markdown(snapshot):
+832: def knowledge_map_prompt_hint():
+839: def _normalize(text):
+845: def _terms(query):
+851: def _score(record, query_norm, words, useful):
+888: def _validate_max_results(value):
+904: def _record_payload(record, reason):
+925: def knowledge_map_lookup(topic, max_results=DEFAULT_MAX_RESULTS):
+985: def diagnostics():
+1025: def status_line():
+1035: def refresh_if_needed(max_age=300, force=False):
+1057: def _sources_unchanged(data):
+1072: stat = os.stat(os.path.join(ROOT, path))
+1083: def invalidate():
+1089: def start_watcher(interval=60):
+1097: def _watch_loop(interval):

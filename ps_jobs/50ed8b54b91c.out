@@ -1,0 +1,50 @@
+1341:                         for _k, _p, _c in all_prices():
+1342:                             _tag = " [green]~ scontato[/]" if _k.startswith("deepseek-v4-flash-latest") else ""
+1343:                             console.print(f"  - {_k:<24}[gold1]{_p:>7.2f}[/] | [gold1]{_c:>7.2f}[/]{_tag}")
+1344:                     else:
+1345:                         from memory_meta import usage_rows, usage_stats
+1346:                         _rows = usage_rows(_u_days)
+1347:                         if not _rows:
+1348:                             console.print(f"[yellow]Nessun utilizzo registrato negli ultimi {_u_days} giorni.[/]")
+1349:                         elif _u_mode == "csv":
+1350:                             import csv
+1351:                             _csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage_report.csv")
+1352:                             with open(_csv_path, "w", newline="", encoding="utf-8") as _f:
+1353:                                 _w = csv.writer(_f)
+1354:                                 _w.writerow(["ts_utc", "ts_local", "session_id", "model",
+1355:                                              "prompt_tokens", "cached_tokens", "completion_tokens",
+1356:                                              "total_tokens", "cost_usd"])
+1357:                                 for _r in _rows:
+1358:                                     _cu = cost_usd(_r["model"], _r["prompt_tokens"], _r["completion_tokens"],
+1359:                                                    _r.get("cached_tokens", 0))
+1360:                                     _w.writerow([_r["ts_utc"],
+1361:                                                  time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(_r["ts_utc"])),
+1362:                                                  _r["session_id"], _r["model"],
+1363:                                                  _r["prompt_tokens"], _r.get("cached_tokens", 0),
+1364:                                                  _r["completion_tokens"], _r["total_tokens"],
+1365:                                                  f"{_cu:.4f}" if _cu is not None else ""])
+1366:                             console.print(f"[green][*] Export CSV:[/] {_csv_path} ({len(_rows)} chiamate)")
+1367:                         else:
+1368:                             _st = usage_stats(_u_days)
+1369:                             _tot_cost, _cost_m, _unk_m = 0.0, {}, set()
+1370:                             for _r in _rows:
+1371:                                 _cu = cost_usd(_r["model"], _r["prompt_tokens"], _r["completion_tokens"],
+1372:                                                _r.get("cached_tokens", 0))
+1373:                                 _tot_cost += _cu or 0.0
+1374:                                 _cost_m[_r["model"]] = _cost_m.get(_r["model"], 0.0) + (_cu or 0.0)
+1375:                                 if _cu is None:
+1376:                                     _unk_m.add(_r["model"])
+1377:                             _usage_rows = []
+1378:                             for _m in _st["by_model"]:
+1379:                                 _usage_rows.append((escape(_m["model"]), str(_m["calls"]),
+1380:                                                                    f"{_m['prompt_tokens']:,}", f"{_m['completion_tokens']:,}",
+1381:                                                    f"{_cost_m.get(_m['model'], 0.0):.4f}" if _m["model"] not in _unk_m else "n/d"))
+1382:                             _tt = _st["totals"]
+1383:                             _usage_rows.append(("[bold]TOTALE[/]", str(sum(_m["calls"] for _m in _st["by_model"])),
+1384:                                                 f"{_tt['prompt_tokens']:,}", f"{_tt['completion_tokens']:,}",
+1385:                                                 f"[bold gold1]{_tot_cost:.4f}[/]"))
+1386:                             console.print(ui_table(
+1387:                                 ("Modello", "Chiamate", "Prompt tok", "Compl. tok", "Costo USD"),
+1388:                                 _usage_rows,
+1389:                                 justify=("left", "right", "right", "right", "right"),
+1390:                                 title=f"Usage ultimi {_u_days} giorni",

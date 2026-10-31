@@ -1,0 +1,2 @@
+chiavi endpoint globali: {'provider': 1455, 'prompt': 1455, 'completion': 1455, 'latency': 1455, 'throughput': 1455, 'uptime_5m': 1455, 'uptime_1d': 1455, 'status': 1455, 'quantization': 1455, 'context_length': 1455}
+top-level model keys: ['id', 'name', 'context_length', 'prompt', 'completion', 'input_cache_read', 'input_cache_write', 'endpoints']

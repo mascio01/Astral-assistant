@@ -1,0 +1,90 @@
+56:                  "description": "Costi osservati LiveBench."},
+57:                 {"id": "lb_table", "pattern": ".lb_table_*.csv", "role": "data",
+58:                  "required": True, "freshness_days": 30,
+59:                  "description": "Tabella punteggi LiveBench."},
+60:                 {"id": "or_cache", "pattern": ".or_models_cache.json", "role": "data",
+61:                  "required": True, "freshness_days": 7,
+62:                  "description": "Cache listino OpenRouter (campo ts come data fonte)."},
+63:                 {"id": "price_map", "pattern": "price_map.py", "role": "interpretation",
+64:                  "required": True, "description": "Prezzi effettivamente usati da Astral."},
+65:                 {"id": "prices_override", "pattern": "prices_override.json",
+66:                  "role": "override", "required": False,
+67:                  "description": "Override utente dei prezzi (se presente)."},
+68:             ],
+69:         },
+70:         {
+71:             "id": "model_benchmarks", "topic": "Benchmark modelli",
+72:             "aliases": ["benchmark", "leaderboard", "prestazioni modelli", "qualita modelli"],
+73:             "description": "Dati e statistiche che supportano la scelta dinamica del modello.",
+74:             "how_to_read": "Usare benchmark_data.py per la logica e i file LB per i dati osservati.",
+75:             "caveats": "Un benchmark e' un segnale, non una garanzia per ogni prompt.",
+76:             "review_due": "", "status": "active",
+77:             "related_ids": ["api_pricing", "routing_history"],
+78:             "precedence": "dati osservati (.lb_*) letti da benchmark_data.py",
+79:             "sources": [
+80:                 {"id": "benchmark_data", "pattern": "benchmark_data.py",
+81:                  "role": "interpretation", "required": True,
+82:                  "description": "Logica di lettura e normalizzazione dei benchmark."},
+83:                 {"id": "lb_table", "pattern": ".lb_table_*.csv", "role": "data",
+84:                  "required": True, "freshness_days": 30,
+85:                  "description": "Tabella punteggi LiveBench scaricata."},
+86:                 {"id": "lb_categories", "pattern": ".lb_categories_*.json", "role": "data",
+87:                  "required": True, "freshness_days": 30,
+88:                  "description": "Categorie della stessa release LiveBench."},
+89:                 {"id": "lb_sync_state", "pattern": ".lb_sync_state.json",
+90:                  "role": "aggregate", "required": False,
+91:                  "description": "Stato dell'ultima sincronizzazione (campo synced)."},
+92:             ],
+93:         },
+94:         {
+95:             "id": "routing_history", "topic": "Preferenze e punteggi routing",
+96:             "aliases": ["routing", "punteggi personali", "preferenze routing",
+97:                         "decisioni router"],
+98:             "description": "Dati aggregati usati per adattare il routing alle categorie osservate.",
+99:             "how_to_read": "Consultare l'originale solo quando serve una decisione sul routing.",
+100:             "caveats": "I dati sono storici e possono contenere bias da campione.",
+101:             "review_due": "", "status": "active",
+102:             "related_ids": ["api_pricing", "model_benchmarks"],
+103:             "precedence": ".routing_personal_scores.json (aggregato) > .routing_audit.jsonl (dettaglio)",
+104:             "sources": [
+105:                 {"id": "personal_scores", "pattern": ".routing_personal_scores.json",
+106:                  "role": "data", "required": True, "freshness_days": 90,
+107:                  "description": "Punteggi personali aggregati."},
+108:                 {"id": "routing_audit", "pattern": ".routing_audit.jsonl",
+109:                  "role": "aggregate", "required": False, "freshness_days": 30,
+110:                  "description": "Audit delle singole decisioni: solo metadati, dati personali."},
+111:             ],
+112:         },
+113:     ],
+114: }
+115: 
+116: # Pattern ammessi come fonte (KM07: confinamento). Solo la root del progetto.
+117: _ALLOWED_PATTERNS = (
+118:     "benchmark_data.py", "price_map.py", "knowledge_catalog.json",
+119:     ".lb_table_*.csv", ".lb_cost_*.csv", ".lb_categories_*.json",
+120:     ".lb_sync_state.json", ".or_models_cache.json",
+121:     ".routing_personal_scores.json", ".routing_audit.jsonl",
+122:     "prices_override.json",
+123: )
+124: 
+125: _STOPWORDS = {
+126:     "a", "ad", "al", "alla", "alle", "che", "chi", "ci", "con", "cosa", "da", "dal",
+127:     "dei", "del", "della", "delle", "di", "dove", "e", "ed", "gli", "i", "il", "in", "io",
+128:     "la", "le", "lo", "mi", "mappa", "map", "ne", "nei", "nel", "nella", "non", "o", "per",
+129:     "piu", "posso", "quale", "quali", "quanto", "si", "sono", "su", "the", "tra", "trovo",
+130:     "tu", "un", "una", "uno", "uso", "usare", "vedere", "voglio", "dati",
+131: }
+132: 
+133: 
+134: def _utc_now():
+135:     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+136: 
+137: 
+138: def _sha256_file(path, limit=MAX_SOURCE_BYTES):
+139:     digest = hashlib.sha256()
+140:     total = 0
+141:     with open(path, "rb") as stream:
+142:         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+143:             total += len(chunk)
+144:             if total > limit:
+145:                 return "", total

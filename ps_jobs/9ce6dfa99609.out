@@ -1,0 +1,32 @@
+1356:                                              "total_tokens", "cost_usd"])
+1357:                                 for _r in _rows:
+1358:                                     _cu = cost_usd(_r["model"], _r["prompt_tokens"], _r["completion_tokens"],
+1359:                                                    _r.get("cached_tokens", 0))
+1360:                                     _w.writerow([_r["ts_utc"],
+1361:                                                  time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(_r["ts_utc"])),
+1362:                                                  _r["session_id"], _r["model"],
+1363:                                                  _r["prompt_tokens"], _r.get("cached_tokens", 0),
+1364:                                                  _r["completion_tokens"], _r["total_tokens"],
+1365:                                                  f"{_cu:.4f}" if _cu is not None else ""])
+1366:                             console.print(f"[green][*] Export CSV:[/] {_csv_path} ({len(_rows)} chiamate)")
+1367:                         else:
+1368:                             _st = usage_stats(_u_days)
+1369:                             _tot_cost, _cost_m, _unk_m = 0.0, {}, set()
+1370:                             for _r in _rows:
+1371:                                 _cu = cost_usd(_r["model"], _r["prompt_tokens"], _r["completion_tokens"],
+1372:                                                _r.get("cached_tokens", 0))
+1373:                                 _tot_cost += _cu or 0.0
+1374:                                 _cost_m[_r["model"]] = _cost_m.get(_r["model"], 0.0) + (_cu or 0.0)
+1375:                                 if _cu is None:
+1376:                                     _unk_m.add(_r["model"])
+1377:                             _usage_rows = []
+1378:                             for _m in _st["by_model"]:
+1379:                                 _usage_rows.append((escape(_m["model"]), str(_m["calls"]),
+1380:                                                                    f"{_m['prompt_tokens']:,}", f"{_m['completion_tokens']:,}",
+1381:                                                    f"{_cost_m.get(_m['model'], 0.0):.4f}" if _m["model"] not in _unk_m else "n/d"))
+1382:                             _tt = _st["totals"]
+=== record_usage callers ===
+astral.py:278: from memory_meta import bootstrap_meta, record_usage
+astral.py:1499: record_usage(used_model, usage)  # Fase 3 UsageTracker (silenzioso)
+astral.py:1710: record_usage(followup_model, getattr(response, "usage", None))
+memory_meta.py:496: def record_usage(model, usage, session_id=None):

@@ -1,0 +1,11 @@
+memory_meta.db -> ['id', 'session_id', 'model', 'prompt_tokens', 'completion_tokens', 'total_tokens', 'ts_utc']
+INSERT INTO usage_log "
+                          "(session_id, model, prompt_tokens, completion_tokens, total_tokens, ts_utc) "
+                          "VALUES (?,?,?,?,?,?)",
+                          (sid, str(model or "unknown")[:120], pt, ct, tt, int(time.time())))
+                c.commit()
+            finally:
+                c.close()
+    except Exception as e:
+        try:
+            l

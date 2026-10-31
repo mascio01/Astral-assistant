@@ -1,0 +1,56 @@
+{
+ "snapshot": {
+  "available": true,
+  "state": "ok",
+  "generation_id": "20261030T005511Z-19156-1",
+  "generated_at": "2026-10-30T00:55:11+00:00",
+  "schema_version": 2,
+  "degraded": false
+ },
+ "catalog": {
+  "state": "ok",
+  "records": 3,
+  "errors": [],
+  "warnings": []
+ },
+ "counts": {
+  "records": 3,
+  "availability": {
+   "partial": 1,
+   "ready": 2
+  },
+  "freshness": {
+   "expired": 2,
+   "fresh": 1
+  },
+  "review": {
+   "unreviewed": 3
+  }
+ },
+ "problems": [
+  {
+   "record": "api_pricing",
+   "kind": "expired_source",
+   "detail": "dati oltre la policy di freschezza",
+   "reason": ""
+  },
+  {
+   "record": "model_benchmarks",
+   "kind": "expired_source",
+   "detail": "dati oltre la policy di freschezza",
+   "reason": ""
+  }
+ ],
+ "last_refresh": {
+  "at": 1793321711.4078505,
+  "error": "",
+  "partial": false,
+  "warnings": []
+ },
+ "paths": {
+  "catalog": "C:\\Users\\Nicolò\\Astral Assistant\\knowledge_catalog.json",
+  "catalog_local": "C:\\Users\\Nicolò\\Astral Assistant\\knowledge_catalog.local.json",
+  "snapshot": "C:\\Users\\Nicolò\\Astral Assistant\\knowledge_map.json",
+  "view": "C:\\Users\\Nicolò\\Astral Assistant\\knowledge_map.md"
+ }
+}

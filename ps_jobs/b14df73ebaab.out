@@ -1,0 +1,22 @@
+336:     return [merged[k] for k in sorted(merged)]
+337: 
+338: 
+339: def _validate_record(record):
+340:     if not isinstance(record, dict):
+341:         return ["non e' un oggetto JSON"]
+342:     problems = []
+343:     for field in ("id", "topic", "description"):
+344:         value = record.get(field)
+345:         if not isinstance(value, str) or not value.strip():
+346:             problems.append("%s mancante o non testuale" % field)
+347:     aliases = record.get("aliases", [])
+348:     if not isinstance(aliases, list) or any(not isinstance(a, str) for a in aliases):
+349:         problems.append("aliases deve essere una lista di stringhe")
+350:     if record.get("status", "active") not in VALID_STATUS:
+351:         problems.append("status '%s' non ammesso" % record.get("status"))
+352:     related = record.get("related_ids", [])
+353:     if not isinstance(related, list) or any(not isinstance(r, str) for r in related):
+354:         problems.append("related_ids deve essere una lista di stringhe")
+355:     sources = record.get("sources", [])
+356:     if not isinstance(sources, list):
+357:         problems.append("sources deve essere una lista")

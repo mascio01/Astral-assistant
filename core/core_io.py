@@ -15,7 +15,7 @@ if __name__ == "__main__":
     import sys as _sys, inspect as _ins, os as _os
     _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
     try:
-        import tools_exec as _te
+        from tools import tools_exec as _te
         _sys.stdout.write("DIAG>>import tools_exec OK\n")
         _names = [n for n in dir(_te) if not n.startswith("_")]
         _sys.stdout.write("DIAG>>names: %s\n" % ", ".join(_names).encode("ascii", "replace").decode("ascii"))

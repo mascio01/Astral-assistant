@@ -1,5 +1,5 @@
 {
     "api_key": "",
     "tool_token_budget": 3000000,
-    "current_model": "auto"
+    "current_model": "deepseek/deepseek-v4.1-flash-1017"
 }

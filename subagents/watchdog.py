@@ -5,7 +5,7 @@ import os
 import hashlib
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CRITICI = ["astral.py", "tools_gateway.py", "verdict_runner.py"]
+CRITICI = ["astral.py", "tools_gateway.py", os.path.join("verdict", "verdict_runner.py")]
 HASH_PATH = os.path.join(BASE, ".subagents_hashes.json")
 
 
