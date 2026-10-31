@@ -1,1 +1,0 @@
-{"id": "1793408256985_330c1e01", "ts": 1793408256.985726, "pid": 1, "slot": null, "context": "t/vivo", "error_type": "ImportError", "error_text": "ImportError: fake B", "target_file": "C:\\Users\\Nicolò\\Astral Assistant\\repair_loop.py", "digest": "1830c91e8721b7d5", "status": "aborted", "closed_ts": 1793408257.2218556}

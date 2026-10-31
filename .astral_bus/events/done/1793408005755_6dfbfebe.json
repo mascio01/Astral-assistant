@@ -1,1 +1,0 @@
-{"id": "1793408005755_6dfbfebe", "ts": 1793408005.755816, "pid": 1, "slot": null, "context": "test/lock", "error_type": "ImportError", "error_text": "ImportError: fake", "target_file": "C:\\Users\\Nicolò\\Astral Assistant\\repair_loop.py", "digest": "c1004301645626dd", "status": "aborted", "closed_ts": 1793408005.979723}

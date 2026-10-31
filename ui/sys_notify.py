@@ -12,7 +12,7 @@ Regole di progetto:
   * Fuori da Windows: no-op silenzioso.
 
 Uso:
-    import sys_notify
+    from ui import sys_notify
     sys_notify.notify("Attenzione", "Budget token del turno superato")
 """
 

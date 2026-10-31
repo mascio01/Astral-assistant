@@ -149,7 +149,8 @@ energia/
 
 # Output generato da graphify (knowledge graph) - MAI versionare
 graphify-out/
-# File temporanei di pulizia
+# Bus runtime locale (segnali, processi, notice): rumore nei commit
+.astral_bus/
 _defs_temp.txt
 _filelist.txt
 filter_rules.txt
