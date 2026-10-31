@@ -17,7 +17,7 @@ from rich.markup import escape
 
 from core.core_io import BASE_DIR, console, log_error, safe_print, get_session_color
 from core.memory_store import TELEMETRY_DB, get_config
-from exec_logger import log_execution
+from utils.exec_logger import log_execution
 import random
 import collections
 
@@ -282,7 +282,7 @@ SYSTEM_INSTRUCTION = (
     "- MODULARIZZAZIONE: Se astral.py supera ~1500 righe, separa la logica dei tools in moduli dedicati (es. tools_patch.py, tools_test.py) importandoli dal file madre.\n"
     "- SELF-AWARENESS: La mappa completa del codice (file, classi, funzioni, righe, import) e' in __ASTRAL_HOME__\\.selfmap.md, rigenerata automaticamente ad ogni avvio di astral.py. A inizio sessione, prima di modifiche strutturali o su dubbio: leggila PRIMA di agire. Dopo ogni patch a file di codice: rigenerala con 'py selfmap.py'.\n"
     "- VERDICT PROTOCOL: Quando l'utente dice 'verdetto' o 'verdict' (anche senza '/verdict'): usa il tool run_verdict con {question, profile ('standard' o 'lite'), context opzionale}: avvia il consiglio in background e ritorna subito un job_id. (2) NON attendere in un loop manuale: chiama verdict_wait. Ogni chiamata attende al massimo ~25s e ritorna status 'running' finche' il consiglio non ha finito; il profilo 'lite' puo' richiedere diversi minuti, quindi richiama verdict_wait con lo STESSO job_id finche' status != 'running' (verdict_status per un check rapido, verdict_cancel per annullare). (3) Quando status='done' mostra result all'utente (il .md completo e' salvato in verdicts/). NON lanciare run_verdict se un job e' gia' attivo e NON ricostruire a mano il protocollo PowerShell: i tool incapsulano avvio, attesa e pulizia.\n"
-    "- SUBAGENTS: comando `/subagent scout|review [file1,file2,...]` lancia subagent READ-ONLY detached (budget 8 job/h, depth 1, snapshot pre-job, budget via subagents/jobspec.check_budget). scout=ricerca, review=revisione codice. Output in subagents/out/. NON invocare i job inline: vanno in detached."
+    "- SUBAGENTS: comando `/subagent scout|review [file1,file2,...]` lancia subagent READ-ONLY detached (budget 8 job/h, depth 1, snapshot pre-job, budget via agents/jobspec.check_budget). scout=ricerca, review=revisione codice. Output in agents/out/. NON invocare i job inline: vanno in detached."
 )
 
 # --- Fix loop percorsi -------------------------------------------------------
@@ -602,7 +602,7 @@ def _system_prompt_static():
     builder = _build_grounded_system_prompt
     signature = None
     try:
-        from selfmap import context_signature
+        from utils.selfmap import context_signature
         signature = context_signature()
     except Exception as _signature_error:
         log_error("bootstrap_signature", _signature_error)
@@ -612,12 +612,12 @@ def _system_prompt_static():
         return cache["text"]
     text = builder()
     try:
-        from selfmap import load_bootstrap_context
+        from utils.selfmap import load_bootstrap_context
         text += "\n\n" + load_bootstrap_context()
     except Exception as _bootstrap_error:
         log_error("bootstrap_context", _bootstrap_error)
     try:
-        from selfmap import knowledge_map_prompt_hint
+        from utils.selfmap import knowledge_map_prompt_hint
         text += "\n\n" + knowledge_map_prompt_hint()
     except Exception as _hint_error:
         log_error("knowledge_map_hint", _hint_error)
@@ -699,7 +699,7 @@ def call_with_dynamic_fallback(messages, tools_schema=None, primary_model=None):
     try:
         # Autoselezione ECC: hint progressivo (shortlist, mai il corpo).
         # Stesso pattern di answer_format_hint: contesto, non ordine operativo.
-        from ecc_skills import prompt_hint as _ecc_hint
+        from skills.ecc_skills import prompt_hint as _ecc_hint
         if os.environ.get("ASTRAL_ECC_HINT", "1") != "0":
             hint = _ecc_hint(last_user)
             if hint:
@@ -836,7 +836,7 @@ def repair_watchdog():
         is_leader = False
         last_repair = 0.0
         try:
-            import watchdog_bus as bus
+            from utils import watchdog_bus as bus
         except Exception:
             bus = None
         while True:

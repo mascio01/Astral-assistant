@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # selfmap.py - Auto-mappa del progetto (self-awareness persistente).
-import ast, datetime, hashlib, json, os, threading, time, warnings
-ROOT = os.path.dirname(os.path.abspath(__file__))
+import ast, datetime, hashlib, json, os, sys, threading, time, warnings
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:  # eseguibile anche come script: py utils/selfmap.py
+    sys.path.insert(0, ROOT)
 OUT = os.path.join(ROOT, ".selfmap.md")
 JSON_OUT = os.path.join(ROOT, ".selfmap.json")
 _WATCH_STARTED = False

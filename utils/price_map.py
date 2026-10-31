@@ -18,9 +18,10 @@ Prezzi indicativi di listino: EDITARE PRICES o usare l'override JSON.
 import json
 import os
 
-_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".or_models_cache.json")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_CACHE_FILE = os.path.join(_ROOT, ".or_models_cache.json")
 
-_DIR = os.path.dirname(os.path.abspath(__file__))
+_DIR = _ROOT
 _OVERRIDE_FILE = os.path.join(_DIR, "prices_override.json")
 
 # Il router stima il costo di molti modelli per richiesta. Senza cache, ogni

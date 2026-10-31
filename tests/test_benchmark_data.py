@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core import benchmark_data as B
-import price_map as P
+from utils import price_map as P
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
 CATS = {

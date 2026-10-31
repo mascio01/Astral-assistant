@@ -85,7 +85,7 @@ def log_error(context, exc):
         # leggendo le prime 30 colonne di una riga di log.
         if not os.environ.get("ASTRAL_TEST_MODE"):
             try:
-                import watchdog_bus as _bus
+                from utils import watchdog_bus as _bus
                 # Il pid d'origine viaggia con l'evento: e' il destinatario
                 # unico della notifica di esito (niente piu' broadcast).
                 return _bus.publish_event(
@@ -109,7 +109,7 @@ def repair_state(event_id):
     file prima di decidere se proseguire o attendere il riavvio.
     """
     try:
-        import watchdog_bus as _bus
+        from utils import watchdog_bus as _bus
         return _bus.event_state(event_id)
     except Exception:
         return {"phase": "unknown", "event_id": event_id}
@@ -118,7 +118,7 @@ def repair_state(event_id):
 def await_repair(event_id, timeout=90.0):
     """Attende l'esito della riparazione entro `timeout` secondi (best-effort)."""
     try:
-        import watchdog_bus as _bus
+        from utils import watchdog_bus as _bus
         return _bus.wait_for_repair(event_id, timeout=timeout)
     except Exception:
         return {"phase": "unknown", "event_id": event_id, "timed_out": True}
@@ -164,7 +164,7 @@ def global_exception_handler(exc_type, exc_value, exc_tb):
     # [WATCHDOG-BUS] Il crash entra nel bus: qualunque processo Astral attivo
     # riceve la notifica e il leader puo' ripararlo con il contesto completo.
     try:
-        import watchdog_bus as _bus
+        from utils import watchdog_bus as _bus
         _bus.publish_event(
             error_text=error_msg,
             error_type=getattr(exc_type, "__name__", "Crash"),

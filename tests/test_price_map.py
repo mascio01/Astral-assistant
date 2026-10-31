@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import price_map as P
+from utils import price_map as P
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
 
@@ -141,8 +141,11 @@ def test_override_utente_caricato_all_import():
     import importlib.util
     import shutil
     tmp = temp_dir()
-    sorgente = os.path.join(_ROOT_BOOT, "price_map.py")
-    copia = os.path.join(tmp, "price_map.py")
+    sorgente = os.path.join(_ROOT_BOOT, "utils", "price_map.py")
+    # price_map risolve la root come cartella superiore al proprio package:
+    # la copia isolata va quindi in <tmp>/utils/ per far puntare _ROOT a <tmp>.
+    os.makedirs(os.path.join(tmp, "utils"), exist_ok=True)
+    copia = os.path.join(tmp, "utils", "price_map.py")
     shutil.copyfile(sorgente, copia)
     with open(os.path.join(tmp, "prices_override.json"), "w", encoding="utf-8") as f:
         json.dump({"modello-di-prova": [1.5, 2.5]}, f)

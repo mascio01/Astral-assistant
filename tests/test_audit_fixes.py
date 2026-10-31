@@ -94,26 +94,26 @@ def test_a02_safe_get_hop_limit():
 
 # --- A-03: confinamento lettura file subagent -------------------------------
 def test_a03_read_file_rel_blocks_traversal():
-    import subagents.roles as R
+    import agents.roles as R
     out = R._read_file_rel("../../../../Windows/System32/drivers/etc/hosts")
     assert "bloccato" in out or "non consentito" in out, out
 
 
 def test_a03_read_file_rel_blocks_absolute():
-    import subagents.roles as R
+    import agents.roles as R
     out = R._read_file_rel("C:\\Windows\\win.ini")
     assert "non consentito" in out, out
 
 
 def test_a03_read_file_rel_allows_internal():
-    import subagents.roles as R
-    out = R._read_file_rel("core_io.py")
+    import agents.roles as R
+    out = R._read_file_rel("core/core_io.py")
     assert "bloccato" not in out and "non consentito" not in out
 
 
 # --- A-04: redazione dei segreti nei log ------------------------------------
 def test_a04_redact_keys_and_values():
-    import exec_logger as L
+    from utils import exec_logger as L
     red = L._redact_value({
         "api_key": "sk-abcdef1234567890",
         "password": "hunter2",
@@ -130,7 +130,7 @@ def test_a04_redact_keys_and_values():
 
 # --- A-05: budget atomico e lock --------------------------------------------
 def test_a05_budget_respects_limit():
-    import subagents.jobspec as J
+    import agents.jobspec as J
     tmp = temp_dir()
     p = Patcher()
     try:
@@ -148,7 +148,7 @@ def test_a05_budget_respects_limit():
 
 
 def test_a05_save_state_atomic_no_corruption():
-    import subagents.jobspec as J
+    import agents.jobspec as J
     tmp = temp_dir()
     p = Patcher()
     try:

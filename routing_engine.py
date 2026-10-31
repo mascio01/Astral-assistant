@@ -23,7 +23,7 @@ from datetime import datetime
 
 from core.core_io import log_error
 from core.budget_guard import check_credits
-from price_map import cost_usd, get_price
+from utils.price_map import cost_usd, get_price
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIT_FILE = os.path.join(BASE_DIR, ".routing_audit.jsonl")

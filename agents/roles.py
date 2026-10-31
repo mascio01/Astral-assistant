@@ -7,11 +7,11 @@ from datetime import datetime
 
 from core.core_io import console, log_error
 from llm_core import _get_client as _shared_client_factory
-from subagents.jobspec import get_ruolo, check_depth
+from agents.jobspec import get_ruolo, check_depth
 from llm_core import route_model
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_DIR = os.path.join(BASE, "subagents", "out")
+OUT_DIR = os.path.join(BASE, "agents", "out")
 
 
 def _read_selfmap(max_chars: int = 6000) -> str:
@@ -71,7 +71,7 @@ def run_role(ruolo: str, contesto: str = "", depth: int = 0) -> dict:
     if not ok_d:
         return {"ok": False, "errore": msg_d}
     # Il budget viene consumato qui, nel solo punto di esecuzione del job.
-    from subagents.jobspec import check_budget
+    from agents.jobspec import check_budget
     ok_b, msg_b = check_budget()
     if not ok_b:
         return {"ok": False, "errore": msg_b}

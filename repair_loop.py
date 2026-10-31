@@ -428,7 +428,7 @@ def _run_repair(state: SelfRepairState) -> SelfRepairState:
                                          "status": "success", "before_sha256": before_sha256,
                                          "patch": result, "test": test})
             try:
-                import selfmap
+                from utils import selfmap
                 selfmap.generate()
             except Exception as exc:
                 log_error("repair_from_log/selfmap", exc)
@@ -473,7 +473,7 @@ def _cli():
         event = None
         if event_id:
             try:
-                import watchdog_bus as bus
+                from utils import watchdog_bus as bus
                 event = bus.claim_event(event_id)
             except Exception:
                 bus = None

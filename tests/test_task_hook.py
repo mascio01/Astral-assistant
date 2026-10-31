@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import task_hook as H
+from utils import task_hook as H
 from _test_support import Patcher, cleanup, run_all, temp_dir
 
 

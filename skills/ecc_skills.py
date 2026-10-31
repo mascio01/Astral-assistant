@@ -15,10 +15,11 @@ import os
 import re
 import unicodedata
 
-_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ecc_skills")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BASE = os.path.join(_ROOT, "ecc_skills")
 _SKILLS_DIR = os.path.join(_BASE, "skills")
 _AGENTS_DIR = os.path.join(_BASE, "agents")
-_INDEX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+_INDEX_PATH = os.path.join(_ROOT,
                            ".ecc_skills_index.json")
 
 # Limite di sicurezza sul corpo iniettato: una skill troppo lunga va troncata

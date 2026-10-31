@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import llm_core as L
-import selfmap as S
+from utils import selfmap as S
 from _test_support import Patcher, run_all
 
 

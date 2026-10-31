@@ -13,8 +13,8 @@ import time
 
 from core.core_io import console
 from rich.markup import escape
-from exec_logger import log_execution
-from evidence import enrich_tool_result
+from utils.exec_logger import log_execution
+from utils.evidence import enrich_tool_result
 
 # [E01] Evidenze/limiti sui risultati (pattern REA). Post-processing read-only,
 # fail-open: se fallisce il payload resta identico. Disattivabile con
@@ -440,7 +440,7 @@ def _h_scrape(args):
 
 def _h_subagent(role, args):
     """Esegue un subagent read-only richiesto dal modello, senza modifiche al codebase."""
-    from subagents.roles import run_role
+    from agents.roles import run_role
     context = str((args or {}).get("context", "")).strip()
     result = run_role(role, contesto=context)
     return {
@@ -679,22 +679,22 @@ def _build_schemas():
 
 # Knowledge Map: schema e handler read-only registrati nel gateway.
 def _h_knowmap(args):
-    from selfmap import knowledge_map_lookup
+    from utils.selfmap import knowledge_map_lookup
     return knowledge_map_lookup(args.get("topic", ""), args.get("max_results", 3))
 
 
 def _h_ecc_skill_search(args):
-    import ecc_skills
+    from skills import ecc_skills
     return ecc_skills.search(args.get("query", ""), args.get("max_results", 8))
 
 
 def _h_ecc_skill_load(args):
-    import ecc_skills
+    from skills import ecc_skills
     return ecc_skills.load(args.get("name", ""))
 
 
 def _h_ecc_skill_create(args):
-    import ecc_skills
+    from skills import ecc_skills
     return ecc_skills.create(
         args.get("name", ""), args.get("description", ""),
         args.get("body", ""), args.get("kind", "skill"),
@@ -705,7 +705,7 @@ def _h_ecc_skill_create(args):
 def _h_graphify_query(args):
     """BFS/DFS traversal del grafo del codebase per una domanda in linguaggio
     naturale: risparmia token rispetto a esplorare i file a mano."""
-    import graphify_bridge as _gb
+    from utils import graphify_bridge as _gb
     question = str((args or {}).get("question", "")).strip()
     if not question:
         return {"error": "Serve 'question'"}
@@ -720,7 +720,7 @@ def _h_graphify_query(args):
 def _h_graphify_graph(args):
     """Operazioni strutturali read-only sul grafo: hub architetturali
     (god_nodes), spiegazione di un nodo, percorso tra due nodi, impatto a monte."""
-    import graphify_bridge as _gb
+    from utils import graphify_bridge as _gb
     action = str((args or {}).get("action", "god_nodes")).strip()
     if action == "god_nodes":
         return _gb.god_nodes(top=args.get("top") or 10)

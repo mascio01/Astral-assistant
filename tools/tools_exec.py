@@ -6,7 +6,7 @@ import subprocess
 from core.core_io import BASE_DIR, _scan_dir_fast, cap_output
 from core.memory_store import recall_get, recall_list, recall_save
 from tools.tools_patch import apply_code_patch, test_python_file
-from exec_logger import log_execution
+from utils.exec_logger import log_execution
 import json
 import time
 

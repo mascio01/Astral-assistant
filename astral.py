@@ -283,7 +283,7 @@ def _notify_turn_done(messages, elapsed_s):
 
 from core.memory_store import checkpoint_pull, checkpoint_save, get_config, init_db
 from core.memory_meta import bootstrap_meta, record_usage
-from price_map import all_prices, cost_usd
+from utils.price_map import all_prices, cost_usd
 from core.history_store import (
     CONFIG_FILE,
     clear_persistent_history,
@@ -896,7 +896,7 @@ def main():
             if lower_input.startswith('/self'):
                 # Self-awareness rapida: interroga .selfmap.json (indice strutturato)
                 try:
-                    import selfmap as _sm
+                    from utils import selfmap as _sm
                     if _sm.is_stale():
                         _sm.generate()
                     _idx = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.selfmap.json'), encoding='utf-8'))
@@ -944,7 +944,7 @@ def main():
             if lower_input.startswith('/graphify'):
                 # Knowledge graph del codebase: query, aggiornamento, hub, explain.
                 try:
-                    import graphify_bridge as _gb
+                    from utils import graphify_bridge as _gb
                     _gp = lower_input.split(maxsplit=2)
                     if not _gb.available():
                         console.print(ui_error("[!] graphify non installato (pip install graphifyy)."))
@@ -1032,7 +1032,7 @@ def main():
 
             if lower_input.startswith('/execlog'):
                 try:
-                    from exec_logger import read_executions
+                    from utils.exec_logger import read_executions
                     _el_n = 15
                     _el_parts = lower_input.split()
                     if len(_el_parts) > 1:
@@ -1201,7 +1201,7 @@ def main():
                     console.print("[dim]Uso: /subagent scout|review [file1,file2,...] — analisi read-only budgetata[/dim]")
                 else:
                     try:
-                        from subagents.roles import run_role
+                        from agents.roles import run_role
                         console.print(f"[dim]Subagent {_s_ruolo} in esecuzione...[/dim]")
                         _s_res = run_role(_s_ruolo, contesto=_s_ctx)
                         _s_report = _s_res.get("report", _s_res.get("errore", "(nessun risultato)"))
@@ -1900,7 +1900,7 @@ if __name__ == "__main__":
     _bs = bootstrap_meta()
     console.print(f"[dim][meta] bootstrap: scanned={_bs.get('scanned', 0)} imported={_bs.get('imported', 0)} skipped={_bs.get('skipped', 0)} error={_bs.get('error', 0)}[/dim]")
     try:
-        import selfmap
+        from utils import selfmap
 
         selfmap.generate()  # indice semantico completo ad ogni avvio
         selfmap.refresh_bootstrap()  # contesto minimo derivato e verificabile
@@ -1911,7 +1911,7 @@ if __name__ == "__main__":
     # Knowledge graph del codebase (graphifyy): auto-rigenerazione se stale +
     # watcher in background. Mai bloccante: qualunque errore e' ignorato.
     try:
-        import graphify_bridge as _gb
+        from utils import graphify_bridge as _gb
 
         if _gb.available():
             _g_res = _gb.ensure_fresh()
@@ -1925,7 +1925,7 @@ if __name__ == "__main__":
     # Skill ECC: vendorizzate on-demand, non versionate. Al primo avvio (cartella
     # assente) si chiede se scaricarle. Mai bloccante: qualunque errore e' ignorato.
     try:
-        import ecc_bootstrap as _ecc_boot
+        from skills import ecc_bootstrap as _ecc_boot
 
         if not _ecc_boot.is_installed():
             def _ask_ecc(text):

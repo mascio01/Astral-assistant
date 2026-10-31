@@ -24,7 +24,7 @@ import sys
 import threading
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GRAPH_DIR = os.path.join(ROOT, "graphify-out")
 GRAPH_JSON = os.path.join(GRAPH_DIR, "graph.json")
 

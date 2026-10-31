@@ -15,7 +15,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import exec_logger as EL
+from utils import exec_logger as EL
 from core import memory_meta as MM
 from core import memory_store as MS
 import tools.task_tracker as TT

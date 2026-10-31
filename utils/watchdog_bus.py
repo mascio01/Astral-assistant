@@ -26,7 +26,7 @@ import tempfile
 import time
 import uuid
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUS = os.path.join(BASE, ".astral_bus")
 EVENTS = os.path.join(BUS, "events")
 CLAIMED = os.path.join(EVENTS, "claimed")

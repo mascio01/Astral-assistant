@@ -15,7 +15,7 @@ import tempfile
 import urllib.request
 import zipfile
 
-_BASE = os.path.dirname(os.path.abspath(__file__))
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SKILLS_ROOT = os.path.join(_BASE, "ecc_skills")
 _SKILLS_DIR = os.path.join(_SKILLS_ROOT, "skills")
 _AGENTS_DIR = os.path.join(_SKILLS_ROOT, "agents")
