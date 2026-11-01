@@ -152,6 +152,44 @@ def test_g20_manutenzione_esplicita():
         cleanup(d)
 
 
+def test_g21_retention_usage_log():
+    """[FIX G21] usage_log non aveva alcuna retention: verifica i due criteri."""
+    d = temp_dir()
+    prev = MM.META_DB
+    try:
+        MM.META_DB = os.path.join(d, "memory_meta.db")
+        c = sqlite3.connect(MM.META_DB)
+        MM._ensure_usage_schema(c)
+        now = int(time.time())
+        old = now - 200 * 86400
+        rows = [("s", "m", 1, 1, 2, 0, "prov", old)] * 3
+        rows += [("s", "m", 1, 1, 2, 0, "prov", now)] * 4
+        c.executemany(
+            "INSERT INTO usage_log (session_id, model, prompt_tokens, completion_tokens,"
+            " total_tokens, cached_tokens, provider_name, ts_utc) VALUES (?,?,?,?,?,?,?,?)",
+            rows)
+        c.commit()
+        c.close()
+
+        out = MM.prune_usage(retention_days=90, max_rows=None)
+        assert out["deleted_by_age"] == 3, out
+        assert out["deleted_by_cap"] == 0, out
+        c = sqlite3.connect(MM.META_DB)
+        n = c.execute("SELECT COUNT(*) FROM usage_log").fetchone()[0]
+        c.close()
+        assert n == 4, n
+
+        out = MM.prune_usage(retention_days=None, max_rows=2)
+        assert out["deleted_by_cap"] == 2, out
+        c = sqlite3.connect(MM.META_DB)
+        n = c.execute("SELECT COUNT(*) FROM usage_log").fetchone()[0]
+        c.close()
+        assert n == 2, n
+    finally:
+        MM.META_DB = prev
+        cleanup(d)
+
+
 if __name__ == "__main__":
     run_all(dict(globals()), title="test_memory_fixes")
 

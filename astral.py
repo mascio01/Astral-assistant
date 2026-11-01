@@ -479,10 +479,13 @@ def run_meta_maintenance():
                 last = int(f.read().strip() or 0)
         if time.time() - last < 86400:  # min 24h
             return
-        from core.memory_meta import audit_meta, prune
+        from core.memory_meta import audit_meta, prune, prune_usage
         rep = {}
         rep["audit"] = audit_meta() or {}
         rep["prune"] = prune() or {}
+        # [FIX G21] usage_log non era coperta da nessuna retention: la telemetria
+        # cresceva indefinitamente. Potata nella stessa finestra di manutenzione.
+        rep["usage"] = prune_usage() or {}
         # [FIX G20] Manutenzione esplicita anche di recall.db/checkpoints.db:
         # la loro retention operava solo sul save, restando di fatto inattiva
         # senza nuovi salvataggi.
@@ -495,12 +498,15 @@ def run_meta_maintenance():
         with open(wm_file, "w", encoding="utf-8") as f:
             f.write(str(int(time.time())))
         _st = rep.get("store") or {}
+        _us = rep.get("usage") or {}
         if (rep["prune"].get("purged") or rep["prune"].get("snapshot")
-                or _st.get("recall") or _st.get("checkpoints")):
+                or _st.get("recall") or _st.get("checkpoints")
+                or _us.get("deleted_by_age") or _us.get("deleted_by_cap")):
             console.print(
                 f"[dim]Manutenzione memoria: purge={rep['prune'].get('purged', 0)} "
                 f"snapshot={rep['prune'].get('snapshot')} "
-                f"recall={_st.get('recall', 0)} checkpoints={_st.get('checkpoints', 0)}[/dim]")
+                f"recall={_st.get('recall', 0)} checkpoints={_st.get('checkpoints', 0)} "
+                f"usage_age={_us.get('deleted_by_age', 0)} usage_cap={_us.get('deleted_by_cap', 0)}[/dim]")
     except Exception:
         pass  # la manutenzione non deve MAI bloccare il loop utente
 

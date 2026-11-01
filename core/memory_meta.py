@@ -20,6 +20,11 @@ META_DB = os.path.join(BASE_DIR, "memory_meta.db")
 _EXEC_LOG = os.path.join(BASE_DIR, "logs", "executions.jsonl")
 _RETENTION_DAYS = 30       # retention default; i pinned sono IMMUNI
 _SOFTDELETE_DAYS = 7       # dopo quanto un soft-deleted viene spazzato (con snapshot)
+# [FIX G21] usage_log cresceva senza limite (nessuna retention): ~12k righe in
+# poche settimane. E' telemetria di consumo, non contenuto utente: si tiene
+# solo la finestra utile al routing/budget e si pota ad ogni manutenzione.
+_USAGE_RETENTION_DAYS = 90
+_USAGE_MAX_ROWS = 50000
 _LOCK = threading.RLock()  # rientrante: prune -> snapshot
 
 def _conn():
@@ -337,6 +342,44 @@ def prune(retention_days=_RETENTION_DAYS, max_entries=20000, hard_after_days=_SO
             return out
         finally:
             c.close()
+
+
+def prune_usage(retention_days=_USAGE_RETENTION_DAYS, max_rows=_USAGE_MAX_ROWS):
+    """[FIX G21] Retention della telemetria ``usage_log``.
+
+    ``usage_log`` cresceva senza alcun limite (nessuna potatura ne' in
+    ``prune`` ne' nella manutenzione periodica): solo telemetria di consumo,
+    quindi si tiene la finestra utile al routing/budget. Due criteri
+    complementari: finestra temporale e tetto di righe (protezione contro
+    burst anomali). Best-effort: un errore non deve bloccare l'avvio.
+
+    Ritorna ``{deleted_by_age, deleted_by_cap}``.
+    """
+    out = {"deleted_by_age": 0, "deleted_by_cap": 0}
+    with _LOCK:
+        c = _conn()
+        try:
+            _ensure_usage_schema(c)
+            if retention_days is not None and retention_days > 0:
+                cutoff = int(time.time()) - int(retention_days) * 86400
+                cur = c.execute("DELETE FROM usage_log WHERE ts_utc < ?", (cutoff,))
+                out["deleted_by_age"] = max(0, cur.rowcount)
+            if max_rows is not None and max_rows > 0:
+                cur = c.execute(
+                    "DELETE FROM usage_log WHERE id NOT IN "
+                    "(SELECT id FROM usage_log ORDER BY ts_utc DESC, id DESC LIMIT ?)",
+                    (int(max_rows),))
+                out["deleted_by_cap"] = max(0, cur.rowcount)
+            c.commit()
+        except Exception as e:
+            try:
+                log_error("prune_usage", e)
+            except Exception:
+                pass
+        finally:
+            c.close()
+    return out
+
 
 def _migrate_v1(src_ref):
     """Migrazione backfill (versionata, idempotente): classifica il log raw in meta."""
