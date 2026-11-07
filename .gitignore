@@ -154,3 +154,6 @@ graphify-out/
 _defs_temp.txt
 _filelist.txt
 filter_rules.txt
+
+# Scratch: sempre ignorato (policy Astral)
+scratch/

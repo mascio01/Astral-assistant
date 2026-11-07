@@ -33,7 +33,7 @@ PROFILI_GIUDICI = {
     ],
     "lite": [
         ("deepseek/deepseek-v4.1-flash", 0.3),
-        ("qwen/qwen3.7-flash", 0.4),
+        ("z-ai/glm-5.3-flash", 0.4),
         ("openai/gpt-6-luna", 0.5),
     ],
 }
@@ -136,6 +136,8 @@ PESI_GIUDICI_DEFAULT = {
     "moonshotai/kimi-k2.5": {"analisi": 9.0, "affidabilita": 7.2},
     "qwen/qwen3.6-flash": {"analisi": 8.7, "affidabilita": 7.7},
     "qwen/qwen3.7-flash": {"analisi": 8.7, "affidabilita": 7.7},
+    # glm-5.3-flash: dati LiveBench reali (release 2026-10-14).
+    "z-ai/glm-5.3-flash": {"analisi": 7.76, "affidabilita": 7.82},
     "openai/gpt-6-luna": {"analisi": 8.5, "affidabilita": 6.0},
 }
 BENCHMARK_FILE = os.path.join("verdict", ".verdict_benchmark_cache.json")

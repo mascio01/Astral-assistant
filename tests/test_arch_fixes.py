@@ -56,8 +56,7 @@ def test_g05_fallimento_non_corrompe():
 def test_g08_ui_esportata():
     """Il package ui deve esporre i simboli usati da astral.py."""
     import ui
-    for name in ("banner", "prompt_label", "confirm", "table", "error",
-                 "voice_confirm"):
+    for name in ("banner", "prompt_label", "confirm", "table", "error"):
         assert hasattr(ui, name), "ui non esporta %s" % name
     assert os.path.exists(os.path.join(os.path.dirname(ui.__file__), "__init__.py"))
 

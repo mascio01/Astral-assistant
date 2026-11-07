@@ -25,6 +25,22 @@ import time
 from core.core_io import BASE_DIR, console, log_error
 
 
+def _log_run(message: str) -> None:
+    """[FIX REPAIR-VISIBLE] Traccia l'attivita' del riparatore su file.
+
+    Il processo viene lanciato con stdout/stderr rediretti: senza questo log
+    un'uscita silenziosa (lock attivo, abort precoce) e' indistinguibile da
+    un successo. Non solleva mai eccezioni.
+    """
+    try:
+        path = os.path.join(BASE_DIR, ".repair_run.log")
+        with open(path, "a", encoding="utf-8", errors="replace") as fh:
+            fh.write("[%s] pid=%s %s\n" % (
+                time.strftime("%Y-%m-%d %H:%M:%S"), os.getpid(), message))
+    except Exception:
+        pass
+
+
 @dataclass
 class SelfRepairState:
     """Stato del ciclo di auto-riparazione (GraphState)."""
@@ -39,6 +55,10 @@ class SelfRepairState:
     test_results: list = field(default_factory=list)
     audit_trail: list = field(default_factory=list)
     status: str = "pending"
+    # Feedback dell'ultima patch fallita (es. "search non trovato"): senza
+    # questo il LLM riceveva ogni volta lo stesso prompt e riproponeva la
+    # stessa patch invalida fino a esaurire i tentativi.
+    patch_feedback: str = ""
 
     def next_attempt(self):
         self.attempts += 1
@@ -70,18 +90,29 @@ ERROR_PATTERNS = {
     "ProcessError": ["CalledProcessError", "subprocess.CalledProcessError"],
     "ZeroDivisionError": ["ZeroDivisionError", "division by zero"],
     "AssertionError": ["AssertionError"],
+    "MarkupError": ["MarkupError", "closing tag", "doesn't match any open tag"],
 }
 
 
 def classify_error(error_msg: str) -> str:
-    """RouterNode: classifica errore per routing intelligente."""
+    """RouterNode: classifica errore per routing intelligente.
+
+    Vince il pattern che compare PIU' TARDI nel testo: in un traceback con
+    eccezioni concatenate ("During handling of the above exception...") conta
+    l'eccezione finale, non la prima riga che fa match.
+    """
     if not error_msg:
         return "unknown"
+    lowered = error_msg.lower()
+    best_type = None
+    best_pos = -1
     for err_type, patterns in ERROR_PATTERNS.items():
         for pat in patterns:
-            if pat.lower() in error_msg.lower():
-                return err_type
-    return "other"
+            pos = lowered.rfind(pat.lower())
+            if pos > best_pos:
+                best_pos = pos
+                best_type = err_type
+    return best_type or "other"
 
 
 FIX_HINTS = {
@@ -127,7 +158,13 @@ def _llm_diagnose(state: SelfRepairState) -> Optional[dict]:
         f"FILE: {state.file_path}\n"
         f"ERRORE ({state.error_type}):\n{state.last_error[:2000]}\n\n"
         f"HINT: {state.fix_hint}\n\n"
-        f"CONTENUTO (ultime 200 righe):\n```\n{file_content[:3000]}\n```\n\n"
+        + (
+            f"TENTATIVO PRECEDENTE FALLITO:\n{state.patch_feedback}\n"
+            "Non riproporre lo stesso SEARCH: deve corrispondere ESATTAMENTE "
+            "a un frammento presente nel file.\n\n"
+            if state.patch_feedback else ""
+        )
+        + f"CONTENUTO (ultime 200 righe):\n```\n{file_content[:3000]}\n```\n\n"
         f"Formato risposta:\n"
         f"SEARCH=<codice da sostituire>\n"
         f"REPLACE=<nuovo codice>\n"
@@ -146,37 +183,89 @@ def _llm_diagnose(state: SelfRepairState) -> Optional[dict]:
         return None
 
 
+_PROSE_RE = re.compile(
+    r"^\s*(?:```|note\b|nota\b|spiegazione\b|explanation\b|perch[eé]\b|why\b|"
+    r"questo\b|this\b|attenzione\b|warning\b|esempio\b|example\b)",
+    re.IGNORECASE,
+)
+
+
 def _extract_patch_from_diagnosis(text: str) -> Optional[list]:
-    """Estrae blocchi search/replace dal responso LLM."""
+    """Estrae blocchi search/replace dal responso LLM.
+
+    Regole (ognuna nasce da un fallimento reale):
+    - l'indentazione del codice va PRESERVATA (niente .strip() sul valore);
+    - la prosa dopo il blocco non deve finire dentro il replace;
+    - sono supportate piu' coppie SEARCH/REPLACE nello stesso responso.
+    """
     if not text or "NO_FIX_KNOWN" in text:
         return None
 
+    pairs = []
     search_lines = []
     replace_lines = []
     mode = None  # "search" | "replace"
 
+    def _flush():
+        if search_lines and replace_lines:
+            pairs.append({
+                "search": "\n".join(search_lines).rstrip("\n"),
+                "replace": "\n".join(replace_lines).rstrip("\n"),
+            })
+
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.upper().startswith("SEARCH"):
+        upper = stripped.upper()
+        if upper.startswith("SEARCH") and "=" in stripped:
+            if mode == "replace":
+                _flush()
+                search_lines, replace_lines = [], []
             mode = "search"
-            val = stripped.split("=", 1)[-1].strip() if "=" in stripped else ""
-            if val:
+            val = line.split("=", 1)[1]
+            if val.startswith(" "):
+                val = val[1:]  # rimuove solo il separatore, non l'indentazione
+            if val.strip():
                 search_lines.append(val)
             continue
-        if stripped.upper().startswith("REPLACE"):
+        if upper.startswith("REPLACE") and "=" in stripped:
             mode = "replace"
-            val = stripped.split("=", 1)[-1].strip() if "=" in stripped else ""
-            if val:
+            val = line.split("=", 1)[1]
+            if val.startswith(" "):
+                val = val[1:]
+            if val.strip():
                 replace_lines.append(val)
+            continue
+        if mode is None:
+            continue
+        if _PROSE_RE.match(line):
+            # fine del blocco: la prosa non e' codice
+            if mode == "replace":
+                _flush()
+                search_lines, replace_lines = [], []
+            mode = None
             continue
         if mode == "search":
             search_lines.append(line)
-        elif mode == "replace":
+        else:
             replace_lines.append(line)
 
-    if search_lines and replace_lines:
-        return [{"search": "\n".join(search_lines), "replace": "\n".join(replace_lines)}]
-    return None
+    _flush()
+    return pairs or None
+
+
+_MISSING_MODULE_RE = re.compile(
+    r"(?:No module named|ModuleNotFoundError: No module named)\s+['\"]([\w\.\-]+)['\"]"
+)
+
+
+def _missing_module(error_msg: str) -> Optional[str]:
+    """Nome del pacchetto mancante, se l'errore e' un import non risolvibile."""
+    if not error_msg:
+        return None
+    matches = _MISSING_MODULE_RE.findall(error_msg)
+    if not matches:
+        return None
+    return matches[-1].split(".")[0]
 
 
 def _is_allowed_target(path: str) -> bool:
@@ -231,6 +320,22 @@ def _result_ok(result: dict) -> bool:
     return bool(result.get("success") or result.get("status") == "ok")
 
 
+def _result_error(result: dict) -> str:
+    """Testo d'errore di un risultato di test, qualunque sia la chiave usata.
+
+    test_python_file restituisce 'stderr'; i vecchi percorsi usavano 'error' o
+    'traceback'. Leggere solo le ultime due rendeva l'errore SEMPRE vuoto e la
+    diagnosi LLM partiva senza contesto.
+    """
+    if not isinstance(result, dict):
+        return str(result)
+    for key in ("error", "traceback", "stderr", "stdout"):
+        value = result.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
 def auto_repair_graph(file_path: str, mode: str = "compile", max_attempts: int = 3) -> SelfRepairState:
     """Graph-based self-repair loop completo.
 
@@ -263,11 +368,24 @@ def auto_repair_graph(file_path: str, mode: str = "compile", max_attempts: int =
             break
 
         # Nodo 2: RouterNode
-        error_msg = result.get("error", "") or result.get("traceback", "")
+        error_msg = _result_error(result)
         state.last_error = error_msg
         state.error_type = classify_error(error_msg)
         state.fix_hint = route_fix_hint(state.error_type)
         console.print(f"[dim][Repair] Errore: [orange1]{state.error_type}[/]: {error_msg[:120]}[/dim]")
+
+        # Guard: errori di dipendenza mancante non si riparano con una patch
+        # al codice. Tentarci produce patch inventate e rollback inutili.
+        if state.error_type == "ImportError" and _missing_module(error_msg):
+            state.status = "aborted"
+            state.fix_hint = _missing_module(error_msg)
+            console.print(
+                f"[yellow][Repair] Dipendenza mancante: {state.fix_hint}. "
+                "Serve 'pip install', non una patch al codice.[/yellow]"
+            )
+            _record_repair_event(state, {"attempt": attempt, "phase": "guard_dependency",
+                                         "status": "aborted", "module": state.fix_hint})
+            break
 
         if state.is_exhausted():
             state.status = "failed"
@@ -313,7 +431,7 @@ def auto_repair_graph(file_path: str, mode: str = "compile", max_attempts: int =
                                              "patch": patch_result, "test": test})
                 break
             rolled_back = _restore_snapshot(file_path, snapshot)
-            state.last_error = (test.get("traceback", "") or test.get("error", "") or str(test))
+            state.last_error = _result_error(test) or str(test)
             _record_repair_event(state, {"attempt": attempt, "phase": "patch_test",
                                          "status": "rolled_back" if rolled_back else "rollback_failed",
                                          "before_sha256": before_sha256, "patch": patch_result,
@@ -323,6 +441,14 @@ def auto_repair_graph(file_path: str, mode: str = "compile", max_attempts: int =
             _record_repair_event(state, {"attempt": attempt, "phase": "patch",
                                          "status": "failed", "before_sha256": before_sha256,
                                          "patch": patch_result})
+            # Il fallimento della patch va retroalimentato al LLM: senza questo
+            # il ciclo ripeteva la stessa proposta fino all'esaurimento.
+            _msgs = [str(r.get("message", "")) for r in patch_result.get("results", [])
+                     if isinstance(r, dict) and r.get("status") != "ok"]
+            state.patch_feedback = (
+                "La patch precedente non e' stata applicata: "
+                + ("; ".join(m for m in _msgs if m) or str(patch_result))
+            )
             console.print(f"[yellow][Repair] Patch fallita: {patch_result}[/yellow]")
 
         # Nodo 5: ClearErrorNode — reset implicito al prossimo tentativo
@@ -340,9 +466,23 @@ def _latest_error_block(log_path: str) -> str:
     return content[starts[-1].start():] if starts else content
 
 
+_CHAIN_RE = re.compile(
+    r"(?:During handling of the above exception|The above exception was the direct cause)",
+    re.IGNORECASE,
+)
+
+
 def _target_from_traceback(error_text: str) -> str:
-    """Sceglie l'ultimo frame Python appartenente al progetto Astral."""
-    candidates = re.findall(r'File "([^"]+\.py)", line \d+', error_text)
+    """Sceglie il frame del progetto dove l'errore e' NATO.
+
+    Con eccezioni concatenate conta solo l'ULTIMO blocco: i frame dei blocchi
+    precedenti appartengono a un errore diverso e ripararli e' sbagliato.
+    """
+    if not error_text:
+        return os.path.join(BASE_DIR, "astral.py")
+    blocks = _CHAIN_RE.split(error_text)
+    last_block = blocks[-1] if blocks else error_text
+    candidates = re.findall(r'File "([^"]+\.py)", line \d+', last_block)
     base = os.path.normcase(os.path.abspath(BASE_DIR)) + os.sep
     for candidate in reversed(candidates):
         path = os.path.abspath(candidate)
@@ -459,17 +599,39 @@ def _cli():
             event_id = ""
     if "--from-log" not in sys.argv and not event_id:
         return
+    _log_run("avvio riparatore argv=%s" % (sys.argv[1:],))
     lock = os.path.join(BASE_DIR, ".repair_active.lock")
     try:
         fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.write(fd, str(os.getpid()).encode("ascii"))
         os.close(fd)
     except FileExistsError:
-        if time.time() - os.path.getmtime(lock) < 600:
+        # [FIX REPAIR-LOCK] Prima un lock anche di un processo MORTO bloccava
+        # il riparatore per 10 minuti in silenzio: l'utente vedeva
+        # "autoriparazione avviata" e poi nulla. Ora verifichiamo che il PID
+        # nel lock sia vivo; se non lo e' il lock e' stale e va rimosso subito.
+        holder = ""
+        try:
+            with open(lock, "r", encoding="ascii", errors="replace") as fh:
+                holder = fh.read().strip()
+        except OSError:
+            holder = ""
+        alive = False
+        if holder.isdigit():
+            try:
+                os.kill(int(holder), 0)
+                alive = True
+            except OSError:
+                alive = False
+        age = time.time() - os.path.getmtime(lock)
+        if alive and age < 600:
+            _log_run("lock attivo detenuto dal PID %s (%.0fs): nessuna azione." % (holder, age))
             return
+        _log_run("lock stale (PID %s vivo=%s eta=%.0fs): rimosso." % (holder or "?", alive, age))
         try:
             os.remove(lock)
-        except OSError:
+        except OSError as exc:
+            _log_run("impossibile rimuovere il lock: %s" % exc)
             return
         return _cli()
     try:
@@ -526,8 +688,12 @@ def _cli():
             except Exception:
                 pass
         if state.status == "success" and "--restart" in sys.argv:
+            _log_run("riparazione riuscita: riavvio astral.py")
             subprocess.Popen([sys.executable, os.path.join(BASE_DIR, "astral.py")], cwd=BASE_DIR,
                              creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        else:
+            _log_run("fine riparazione: status=%s file=%s tentativi=%s" % (
+                state.status, os.path.basename(state.file_path or "?"), state.attempts))
     finally:
         try:
             os.remove(lock)

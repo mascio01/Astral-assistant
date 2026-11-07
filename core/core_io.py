@@ -160,20 +160,46 @@ def await_repair(event_id, timeout=90.0):
         return {"phase": "unknown", "event_id": event_id, "timed_out": True}
 
 def launch_self_repair(restart=False):
-    """Avvia un riparatore isolato; opzionalmente riapre Astral dopo il fix."""
+    """Avvia un riparatore isolato; opzionalmente riapre Astral dopo il fix.
+
+    [FIX REPAIR-VISIBLE] Prima questa funzione ritornava True appena Popen
+    riusciva, con stdout/stderr su DEVNULL: se il riparatore moriva subito
+    (lock attivo, ImportError, crash interno) l'utente vedeva comunque
+    "autoriparazione avviata" senza che nulla accadesse davvero.
+    Ora l'output va su .repair_run.log e verifichiamo che il processo
+    sopravviva al primo istante di vita.
+    """
     try:
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         args = [sys.executable, os.path.join(BASE_DIR, "repair_loop.py"), "--from-log"]
         if restart:
             args.append("--restart")
-        subprocess.Popen(
+        log_path = os.path.join(BASE_DIR, ".repair_run.log")
+        try:
+            log_fh = open(log_path, "a", encoding="utf-8", errors="replace")
+            log_fh.write("\n[%s] launch_self_repair restart=%s\n" % (
+                _dt.now().strftime("%Y-%m-%d %H:%M:%S"), restart))
+            log_fh.flush()
+        except Exception:
+            log_fh = subprocess.DEVNULL
+        proc = subprocess.Popen(
             args,
             cwd=BASE_DIR,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
             creationflags=flags,
         )
+        # Verifica di sopravvivenza: un riparatore che muore entro ~2s
+        # (lock attivo o errore d'import) NON e' un avvio riuscito.
+        try:
+            code = proc.wait(timeout=2)
+        except Exception:
+            code = None
+        if code is not None:
+            _early_log("launch_self_repair", RuntimeError(
+                "il riparatore e' terminato subito con exit code %s (vedi .repair_run.log)" % code))
+            return False
         return True
     except Exception as exc:
         _early_log("launch_self_repair", exc)

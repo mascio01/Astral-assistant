@@ -15,7 +15,7 @@ import time
 # Se lo stesso tool viene invocato con argomenti identici piu' volte di seguito,
 # rieseguirlo produce lo stesso output: il modello resta in loop bruciando token.
 # Qui la terza chiamata identica consecutiva viene rifiutata con un avviso.
-_LOOP_MIN_REPEATS = 3
+_LOOP_MIN_REPEATS = 6
 _recent_calls = []
 
 
@@ -234,8 +234,14 @@ def _execute_tool_impl(name, args):
 
     elif name == "run_powershell_cmd":
         cmd = args.get("command")
+        # [FIX] Il gateway concede 220s a questo tool, ma qui il subprocess
+        # moriva a 30s: ogni comando piu' lento falliva con un falso timeout
+        # che apriva il circuit breaker. Allineato al budget del gateway
+        # (margine di 10s per far arrivare l'errore al modello prima dello
+        # scadere del watchdog del gateway).
+        _PS_TIMEOUT = 210
         try:
-            result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+            result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_PS_TIMEOUT)
             raw_out = result.stdout.strip()
             raw_err = result.stderr.strip()
             out, _omitted = cap_output(raw_out)
@@ -293,7 +299,7 @@ def _execute_tool_impl(name, args):
                 pass
             return {"stdout": out, "stderr": err, "exit_code": result.returncode}
         except subprocess.TimeoutExpired:
-            return {"error": "Timeout del comando dopo 30 secondi."}
+            return {"error": f"Timeout del comando dopo {_PS_TIMEOUT} secondi.", "status": "timeout", "retry_allowed": False}
         except Exception as e:
             return {"error": str(e)}
     elif name == "recall":

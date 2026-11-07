@@ -93,13 +93,13 @@ _PERSONAL_LOCK = threading.RLock()
 # (input 0.10/M, 2.5x). Il terzo modello serve SOLO il ragionamento.
 # gpt-6-luna rimosso: reasoning 8.18 e affidabilita' 5.59, cioe' il piu' basso
 # del pool su entrambi gli assi, a un costo non inferiore agli altri.
-# qwen3.7-flash lo sostituisce: reasoning 8.74 (il piu' alto del pool) e
-# affidabilita' 7.71, a 0.03/0.13 $/M (stessi punteggi di qwen3.8-flash,
-# input ~5x piu' economico).
+# glm-5.3-flash lo sostituisce: 0.0285/0.0923 $/M (piu' economico di
+# qwen3.7-flash su entrambi gli assi) e contesto 1M. Punteggi LiveBench
+# reali: reasoning 7.76, codice 8.06, affidabilita' 7.82.
 ROUTING_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash-1017",
-    "qwen/qwen3.7-flash",
+    "z-ai/glm-5.3-flash",
     "anthropic/claude-haiku-5.5",
 ]
 
@@ -112,6 +112,10 @@ DEFAULT_BENCHMARK = {
     "deepseek/deepseek-v4.1-flash": {"conversazione": 8.12, "codice": 8.0, "reasoning": 8.67, "affidabilita": 7.0, "costo": 8.5},
     "qwen/qwen3.8-flash": {"conversazione": 7.46, "codice": 7.26, "reasoning": 8.74, "affidabilita": 7.71, "costo": 7.78},
     "qwen/qwen3.7-flash": {"conversazione": 7.46, "codice": 7.26, "reasoning": 8.74, "affidabilita": 7.71, "costo": 9.02},
+    # glm-5.3-flash: dati LiveBench reali (release 2026-10-14). Perde sul
+    # reasoning (7.76 vs 8.74) ma vince su codice (8.06 vs 7.26),
+    # affidabilita' (7.82 vs 7.71) e costo (9.2 vs 9.02).
+    "z-ai/glm-5.3-flash": {"conversazione": 7.38, "codice": 8.06, "reasoning": 7.76, "affidabilita": 7.82, "costo": 9.2},
     "deepseek/deepseek-v4-flash-vision-exp": {"conversazione": 8.04, "codice": 6.82, "reasoning": 8.54, "affidabilita": 7.1, "costo": 6.5},
     "deepseek/deepseek-v4-flash-0731": {"conversazione": 7.92, "codice": 7.5, "reasoning": 8.66, "affidabilita": 6.55, "costo": 9.0},
     "openai/gpt-5.6-sol": {"conversazione": 9.5, "codice": 9.0, "reasoning": 9.16, "affidabilita": 9.5, "costo": 5.0},
@@ -485,7 +489,7 @@ def _profile_bonus(model: str, features: dict, categoria: str) -> float:
     # Categoria ragionamento: decide SOLO il benchmark reasoning. I modulatori
     # di policy sotto sono asimmetrici (premiano il 0731 di +0.10) e
     # falserebbero il confronto: qui il 0731 (8.66), il 4.1-flash (8.67) e lo
-    # specialista qwen3.8-flash (8.74) si misurano sui punteggi reali, e a pari
+    # specialista glm-5.3-flash (7.76) si misurano sui punteggi reali, e a pari
     # merito vince chi costa meno per la lunghezza prevista.
     is_reasoning = categoria == "ragionamento"
     if is_reasoning:
@@ -1056,23 +1060,58 @@ def _pool_dinamico() -> list:
     return list(_POOL_CACHE or ROUTING_POOL)
 
 
+# Modelli dichiarati idonei al lavoro sul codice (alias e suffissi di release
+# inclusi: il pool usa la forma canonica con suffisso).
+#
+# REGOLA: quando la categoria del turno e' "codice", il risparmio NON puo'
+# eleggere un modello non-codice. Prima di questo filtro il bonus economico
+# (_POLICY_DEFAULT_BONUS e il termine di costo di _score) poteva far vincere
+# glm-5.3-flash o claude-haiku-5.5 su un turno di codice: la convenienza
+# economica scavalcava l'idoneita' tecnica. Il risparmio resta invece attivo
+# DENTRO questo set (0731 economico vs 4.1-flash per il codice complesso),
+# dove confronta due modelli ugualmente idonei.
+_CODE_MODEL_PREFIXES = (
+    "deepseek/deepseek-v4-flash-0731",
+    "deepseek/deepseek-v4.1-flash",
+)
+
+
+def _is_code_model(model: str) -> bool:
+    """True se il modello e' idoneo al codice (alias/suffissi di release accettati)."""
+    if not model:
+        return False
+    return any(str(model) == p or str(model).startswith(p)
+               for p in _CODE_MODEL_PREFIXES)
+
+
 def decide_model(user_input: str, context=None) -> dict:
     """Decisione pesata su richiesta, carico previsto e continuità dello storico."""
     bench = _bench()
     categoria, conf = classify_input(user_input)
-    # Mappatura categoria Astral -> chiave benchmark LiveBench:
-    #   informativo  -> conversazione (non esiste nei benchmark)
-    #   ragionamento -> reasoning      (score LiveBench reasoning reale)
-    bench_cat = _bench_key(categoria)
     tool_phase = _tool_phase(context)
     if tool_phase == "codice":
         # La fase operativa prevale sul testo originale: il lavoro puo' essere
         # diventato codice dopo una lettura, una diagnosi o un primo tool call.
         categoria, conf = "codice", max(conf, 0.90)
+    # Mappatura categoria Astral -> chiave benchmark LiveBench:
+    #   informativo  -> conversazione (non esiste nei benchmark)
+    #   ragionamento -> reasoning      (score LiveBench reasoning reale)
+    # Il mapping va fatto DOPO l'override della fase operativa: calcolarlo prima
+    # confrontava i modelli sulla metrica della categoria originale (es.
+    # "conversazione") anche quando il turno era ormai lavoro sul codice.
+    bench_cat = _bench_key(categoria)
     features = _context_features(user_input, context)
     active_categories = _active_categories(user_input, features, primary=categoria)
     features["categorie_attive"] = active_categories
     pool = _pool_dinamico()
+    if categoria == "codice":
+        # Solo modelli idonei al codice: il risparmio non elegge un modello
+        # conversazionale/reasoning quando si sta scrivendo o correggendo codice.
+        codice_pool = [m for m in pool if _is_code_model(m)]
+        if codice_pool:
+            pool = codice_pool
+        # Pool senza modelli riconosciuti: si tiene il pool intero (meglio un
+        # modello generico che nessun candidato).
     personal = _personal_scores()
     telemetry_costs = _telemetry_costs(bench)
     # Previsione dei token per QUESTA richiesta: serve al tie-break a pari merito
@@ -1121,6 +1160,12 @@ def decide_model(user_input: str, context=None) -> dict:
     prev = _state.get("previous")
     if prev not in scores:
         prev = pool[0]
+    if categoria == "codice" and not _is_code_model(prev):
+        # La scelta precedente non e' un modello di codice (es. si veniva da un
+        # turno conversazionale): l'isteresi non deve difenderla. Si riparte dal
+        # migliore del pool codice invece di attendere STREAK_NECESSARI turni.
+        prev = best
+        _state["streak"] = {}
     ordinati = sorted(scores.values(), reverse=True)
     margine = round(ordinati[0] - ordinati[1], 3) if len(ordinati) > 1 else 0.0
 

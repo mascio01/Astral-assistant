@@ -194,6 +194,8 @@ telemetry_enabled = True
 # Modelli dedicati al routing dinamico intelligente (tutti verificati e operativi)
 MODEL_CONVERSATION = "deepseek/deepseek-v4-flash-0731"
 MODEL_CODE = "deepseek/deepseek-v4.1-flash"
+# Modello dedicato al ragionamento (terzo slot del pool dinamico).
+MODEL_REASONING = "z-ai/glm-5.3-flash"
 
 MODELS = {
     "deepseek": "deepseek/deepseek-v4-flash-0731",
@@ -207,9 +209,9 @@ MODELS = {
     "luna": "openai/gpt-5.6-luna",
     "5.6-luna": "openai/gpt-5.6-luna",
     "gpt-5.6-luna": "openai/gpt-5.6-luna",
-    "qwen": "qwen/qwen3.7-flash",
-    "qwen3.7": "qwen/qwen3.7-flash",
-    "qwen3.7-flash": "qwen/qwen3.7-flash",
+    "glm": "z-ai/glm-5.3-flash",
+    "glm5.3": "z-ai/glm-5.3-flash",
+    "glm5.3-flash": "z-ai/glm-5.3-flash",
     "qwen3.8": "qwen/qwen3.8-flash",
     "qwen3.8-flash": "qwen/qwen3.8-flash",
     "auto": "auto"
@@ -217,17 +219,18 @@ MODELS = {
 
 # Full IDs verificati su OpenRouter (ammessi oltre ai valori di MODELS)
 EXTRA_VALID_MODELS = {"deepseek/deepseek-v4-flash-0731", "deepseek/deepseek-v4.1-flash",
-                      "qwen/qwen3.8-flash", "qwen/qwen3.7-flash"}
+                      "qwen/qwen3.8-flash", "z-ai/glm-5.3-flash"}
 
 # Pool a 2 modelli per codice/conversazione: il 0731 e' il default (input
 # 0.04/M); il 4.1-flash (input 0.10/M) entra solo su codice complesso. Il terzo
 # modello serve solo il ragionamento. gpt-6-luna rimosso: reasoning 8.18 e
-# affidabilita' 5.59, il piu' basso del pool su entrambi gli assi. qwen3.7-flash
-# sostituisce qwen3.8-flash: stessi punteggi, input ~5x piu' economico.
+# affidabilita' 5.59, il piu' basso del pool su entrambi gli assi. glm-5.3-flash
+# sostituisce qwen3.7-flash: input 0.0285/M e output 0.0923/M, piu' economico
+# su entrambi gli assi, con contesto 1M.
 DYNAMIC_MODELS_POOL = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
-    "qwen/qwen3.7-flash",
+    "z-ai/glm-5.3-flash",
 ]
 
 current_model = "auto"
@@ -281,6 +284,7 @@ SYSTEM_INSTRUCTION = (
     "- AUTO-TESTING: Dopo ogni modifica al codice, verifica con test_python_file (mode='compile' per sintassi, mode='run' per dry-run). Durante ragionamenti multi-step, applica modifiche e test in modo SILENZIOSO: riporta all'utente solo l'esito finale.\n"
     "- MODULARIZZAZIONE: Se astral.py supera ~1500 righe, separa la logica dei tools in moduli dedicati (es. tools_patch.py, tools_test.py) importandoli dal file madre.\n"
     "- SELF-AWARENESS: La mappa completa del codice (file, classi, funzioni, righe, import) e' in __ASTRAL_HOME__\\.selfmap.md, rigenerata automaticamente ad ogni avvio di astral.py. A inizio sessione, prima di modifiche strutturali o su dubbio: leggila PRIMA di agire. Dopo ogni patch a file di codice: rigenerala con 'py utils/selfmap.py'.\n"
+    "- GRAPHIFY-FIRST: per domande ARCHITETTURALI (dove sta una logica, chi chiama chi, dipendenze, aree del codebase non ancora mappate in questa sessione) usa graphify_query PRIMA dell'esplorazione manuale dei file: il traversal del grafo costa meno token di grep + letture multiple. Non usarlo per letture chirurgiche di righe gia' note (li' bastano selfmap e lettura diretta del file).\n"
     "- VERDICT PROTOCOL: Quando l'utente dice 'verdetto' o 'verdict' (anche senza '/verdict'): usa il tool run_verdict con {question, profile ('standard' o 'lite'), context opzionale}: avvia il consiglio in background e ritorna subito un job_id. (2) NON attendere in un loop manuale: chiama verdict_wait. Ogni chiamata attende al massimo ~25s e ritorna status 'running' finche' il consiglio non ha finito; il profilo 'lite' puo' richiedere diversi minuti, quindi richiama verdict_wait con lo STESSO job_id finche' status != 'running' (verdict_status per un check rapido, verdict_cancel per annullare). (3) Quando status='done' mostra result all'utente (il .md completo e' salvato in verdicts/). NON lanciare run_verdict se un job e' gia' attivo e NON ricostruire a mano il protocollo PowerShell: i tool incapsulano avvio, attesa e pulizia.\n"
     "- SUBAGENTS: comando `/subagent scout|review [file1,file2,...]` lancia subagent READ-ONLY detached (budget 8 job/h, depth 1, snapshot pre-job, budget via agents/jobspec.check_budget). scout=ricerca, review=revisione codice. Output in agents/out/. NON invocare i job inline: vanno in detached."
 )

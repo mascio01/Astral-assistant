@@ -9,12 +9,6 @@ import time
 from core.core_io import (BASE_DIR, _early_log, console, install_exception_hooks,
                           launch_self_repair, log_error, set_session_color)
 
-try:
-    from ui import stt_integration
-except Exception as e:
-    stt_integration = None
-    _early_log("import stt_integration", e)
-
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.markup import escape
@@ -22,8 +16,7 @@ from rich.table import Table
 
 try:
     from ui import (banner as ui_banner, prompt_label as ui_prompt_label,
-                    confirm as ui_confirm, table as ui_table, error as ui_error,
-                    voice_confirm as ui_voice_confirm)
+                    confirm as ui_confirm, table as ui_table, error as ui_error)
 except Exception as _ui_e:
     _early_log("import ui", _ui_e)
     from rich.panel import Panel as _ui_Panel
@@ -43,16 +36,6 @@ except Exception as _ui_e:
 
     def ui_confirm(text):
         return console.input(f"[bold orange_red1]{_ui_escape(text)}[/] (s/N): ")
-
-    def ui_voice_confirm(text, timeout=1.5):
-        try:
-            answer = console.input(
-                "[bold orange_red1]Invio la trascrizione? "
-                "(INVIO=s / n=modifica): [/]")
-            return text if answer.strip().lower() != "n" else console.input(
-                "Testo corretto: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return ""
 
     def ui_table(headers, rows, justify=None, **kw):
         _t = _ui_Table(**kw)
@@ -82,12 +65,18 @@ from ui.loop_detector import LoopDetector
 #   - SOFT  (config 'tool_round_soft_limit', default 130): avviso + conferma utente.
 #   - HARD  (config 'tool_round_hard_limit', default 150): stop assoluto.
 #   - TOKEN (config 'tool_token_budget', default 3000000; 0=illimitato):
-#     stop quando i token cumulati nel turno superano il budget.
+#     al superamento NON interrompe: chiede conferma all'utente se fermare
+#     il ciclo. Se si prosegue, richiede di nuovo ogni 1.2M token extra
+#     (step incrementale, vedi _TOKEN_BUDGET_STEP in core/repl_engine.py).
 _TOOL_ROUND_WARN1_DEFAULT = 50
 _TOOL_ROUND_WARN2_DEFAULT = 100
 _TOOL_ROUND_DEFAULT = 130
 _TOOL_ROUND_HARD_DEFAULT = 150
 _TOOL_TOKEN_BUDGET_DEFAULT = 3_000_000
+# [CONTESTO] Soglia di avviso sul contesto totale della conversazione (token
+# stimati). Se superata, Astral si ferma e chiede se continuare, per non
+# perdere il contesto con un trim improvviso. 0 = disattivato.
+_CONTEXT_WARN_TOKENS_DEFAULT = 150_000
 
 # [ANTI-LOOP] Circuit breaker sul loop principale: se piu' turni consecutivi
 # sollevano eccezioni (errore sistemico, es. NameError prima del prompt di
@@ -120,6 +109,26 @@ def _get_tool_token_budget():
     return get_int("tool_token_budget", _TOOL_TOKEN_BUDGET_DEFAULT)
 
 
+def _get_context_warn_tokens():
+    """Soglia di avviso sul contesto totale della conversazione
+    (config 'context_warn_tokens', default 150k; 0 = disattivato).
+
+    Quando il contesto stimato supera questa soglia Astral si ferma e chiede
+    se continuare, cosi' l'utente puo' salvare/riepilogare prima che il trim
+    respiratorio scarti i turni piu' vecchi.
+    """
+    return get_int("context_warn_tokens", _CONTEXT_WARN_TOKENS_DEFAULT)
+
+
+def _get_context_warn_pct():
+    """Soglia di avviso sul contesto come PERCENTUALE della finestra di
+    contesto del modello attivo (config 'context_warn_pct', default 85;
+    0 = disattivato). Se >0 ha precedenza sulla soglia fissa in token:
+    la finestra si adatta automaticamente al modello scelto dal routing.
+    """
+    return get_int("context_warn_pct", 85)
+
+
 def _get_tool_round_cap():
     """[compat] Alias storico: ritorna il soft-limit."""
     return _get_tool_round_soft()
@@ -141,6 +150,35 @@ def _usage_total_tokens(usage):
                 ct = ct if ct is not None else usage.get("completion_tokens")
             total = (pt or 0) + (ct or 0)
         return int(total or 0)
+    except Exception:
+        return 0
+
+
+def _estimate_context_tokens(messages):
+    """Stima grezza (chars/4) dei token occupati dal contesto inviato al modello.
+
+    Serve solo per l'avviso di soglia: best-effort, mai solleva. Conta i campi
+    'content' testuali e gli argomenti delle tool_calls.
+    """
+    try:
+        chars = 0
+        for m in messages or []:
+            if not isinstance(m, dict):
+                continue
+            c = m.get("content")
+            if isinstance(c, str):
+                chars += len(c)
+            elif isinstance(c, list):
+                for part in c:
+                    if isinstance(part, dict):
+                        chars += len(str(part.get("text", "")))
+            for tc in (m.get("tool_calls") or []):
+                try:
+                    fn = tc.get("function") or {}
+                    chars += len(str(fn.get("name", ""))) + len(str(fn.get("arguments", "")))
+                except Exception:
+                    pass
+        return chars // 4
     except Exception:
         return 0
 
@@ -168,23 +206,11 @@ def _log_loop_diagnostic(user_input, used_model, rounds, cap, reason="hard_stop"
         pass
 
 
-try:
-    from ui import voice_feedback
-except Exception:
-    voice_feedback = None  # indicatore visivo opzionale: mai bloccare il REPL
-
-
 # --- notifiche di sistema -------------------------------------------------
-# Regola: si notifica SOLO se la console di Astral NON e' in primo piano,
-# cosi' nessun toast disturba chi sta gia' guardando la sessione. Tutto e'
-# best-effort: se il modulo manca la sessione continua senza notifiche.
+# [RIMOSSO] voice_feedback: dipendenza voce disattivata. No-op compatibile.
 def _lights_notify(kind):
-    """Feedback visivo best-effort: casella colorata in console, mai eccezioni."""
-    if voice_feedback is not None:
-        try:
-            voice_feedback.notify(kind)
-        except Exception:
-            pass
+    """No-op: la voce e' stata rimossa, il hook resta per compatibilita'."""
+    pass
 
 
 def _sys_notify(title, message, kind="info", force=False):
@@ -289,6 +315,7 @@ from repair_loop import auto_repair_graph  # graph-based self-repair (fase 2)
 from llm_core import (
     MODEL_CODE,
     MODEL_CONVERSATION,
+    MODEL_REASONING,
     MODELS,
     auto_repair,
     call_with_dynamic_fallback,
@@ -303,77 +330,7 @@ from llm_core import (
 )
 import tools_gateway as gateway
 from tools_gateway import call_tool as gateway_call_tool
-try:
-    from prompt_toolkit import PromptSession
-    PROMPT_TOOLKIT_OK = True
-except Exception as e:
-    PromptSession = None
-    PROMPT_TOOLKIT_OK = False
-    _early_log("import prompt_toolkit", e)
-
-
-
-
 install_exception_hooks()
-
-
-
-voice_prompt_session = None  # lazy init: vedi _get_voice_prompt_session()
-
-def _get_voice_prompt_session():
-    """Crea il PromptSession al primo uso (lazy init: evita crash import senza TTY)."""
-    global voice_prompt_session, PROMPT_TOOLKIT_OK
-    if voice_prompt_session is None and PROMPT_TOOLKIT_OK:
-        try:
-            voice_prompt_session = PromptSession()
-        except Exception as e:
-            PROMPT_TOOLKIT_OK = False
-            _early_log("init PromptSession", e)
-    return voice_prompt_session
-
-def _legacy_voice_confirm_async(text, timeout):
-    """Prompt conferma con timer (prompt_toolkit async): INVIO=invia,
-    ESC=annulla, scadenza timer=auto-invio se il buffer non e' stato modificato.
-    Ritorna: testo (eventualmente modificato), "" (annulla) o __AUTO__.
-    """
-    import asyncio
-    from prompt_toolkit.key_binding import KeyBindings
-
-    async def _run():
-        kb = KeyBindings()
-
-        @kb.add("escape")
-        def _esc(event):
-            event.app.exit(exception=KeyboardInterrupt)
-
-        session = _get_voice_prompt_session()
-        prompt_t = asyncio.ensure_future(session.prompt_async(
-            "Astral (Voce) > ", default=text, key_bindings=kb))
-        if not timeout:
-            return await prompt_t
-        timer_t = asyncio.ensure_future(asyncio.sleep(timeout))
-        done, _pend = await asyncio.wait({prompt_t, timer_t},
-                                         return_when=asyncio.FIRST_COMPLETED)
-        if timer_t in done and prompt_t not in done:
-            if (session.default_buffer.text or "").strip() == text.strip():
-                prompt_t.cancel()
-                try:
-                    await prompt_t
-                except asyncio.CancelledError:  # Py3.13: BaseException, non Exception
-                    pass
-                return "__AUTO__"  # auto-invio della trascrizione
-            timer_t.cancel()  # l'utente sta modificando: timer disattivato
-        else:
-            timer_t.cancel()
-        try:
-            val = await prompt_t
-            return (val or "").strip()
-        except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
-            return ""  # ESC / Ctrl-C / task cancellata: annulla
-    try:
-        return asyncio.run(_run())
-    except (EOFError, KeyboardInterrupt):
-        return ""
 
 
 def _parse_verdict_request(text):
@@ -456,14 +413,8 @@ def _build_verdict_input(question, messages, max_chars=18000):
 
 
 def read_voice_input(text, auto_send_s=1.5):
-    """Finestra di conferma trascrizione (1.5s): INVIO=invia subito,
-    ESC=annulla, altro tasto=modifica (disattiva il timer). Auto-invio
-    allo scadere. Fallback (no prompt_toolkit): conferma senza timer."""
-    _lights_notify("ok")  # casella verde: trascrizione pronta
-    console.print(f"[bold gold1]Trascrizione:[/] {escape(text)}")
-    console.print(f"[dim]INVIO=invia | ESC=annulla | auto-invio tra "
-                  f"{auto_send_s}s (un tasto qualsiasi disattiva il timer)[/dim]")
-    return ui_voice_confirm(text, auto_send_s)
+    """[RIMOSSO] La voce e' stata disattivata. Ritorna il testo invariato."""
+    return text
 
 
 def run_meta_maintenance():
@@ -711,16 +662,14 @@ if __name__ == "__main__":
         pass  # mai bloccare l'avvio per la mappa
     # Knowledge graph del codebase (graphifyy): auto-rigenerazione se stale +
     # watcher in background. Mai bloccante: qualunque errore e' ignorato.
+    # NB: il rebuild gira in un thread daemon, cosi' l'avvio non aspetta i
+    # ~30s di re-estrazione AST. Se il grafo e' gia' fresco la stampa arriva
+    # comunque subito (skipped).
     try:
         from utils import graphify_bridge as _gb
 
         if _gb.available():
-            _g_res = _gb.ensure_fresh()
-            if not _g_res.get("skipped"):
-                console.print(f"[dim][graph] {'aggiornato' if _g_res.get('ok') else 'errore'}: "
-                              f"nodi={_g_res.get('nodes_after', '?')} "
-                              f"in {_g_res.get('duration_s', '?')}s[/dim]")
-            _gb.start_watcher()  # mantiene il grafo fresco durante il runtime
+            _gb.refresh_async(report=True)
     except Exception:
         pass  # mai bloccare l'avvio per il grafo
     # Skill ECC: vendorizzate on-demand, non versionate. Al primo avvio (cartella

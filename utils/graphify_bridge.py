@@ -219,6 +219,61 @@ def ensure_fresh(max_age=None, force=False):
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def refresh_async(report=False):
+    """Avvia ensure_fresh() in un thread daemon: non blocca mai l'avvio.
+
+    Se il grafo e' fresco non parte nessun rebuild e (con report=True) viene
+    stampata subito una riga di stato. Altrimenti il rebuild avviene in
+    background e il suo esito viene stampato al termine senza interrompere
+    la sessione interattiva.
+    """
+    try:
+        if not available():
+            return False
+        fresh = not needs_update()
+    except Exception:
+        fresh = False
+
+    def _console(msg):
+        try:
+            from core.console import console  # type: ignore
+        except Exception:
+            try:
+                from rich.console import Console
+                Console().print(msg)
+            except Exception:
+                print(msg)
+
+    if fresh:
+        if report:
+            try:
+                n = _node_count()
+                _console(f"[dim][graph] fresco: nodi={n}[/dim]")
+            except Exception:
+                pass
+        start_watcher()
+        return True
+
+    def _worker():
+        res = {}
+        try:
+            res = ensure_fresh()
+        except Exception as exc:
+            res = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        if report and not res.get("skipped"):
+            try:
+                _console(f"[dim][graph] {'aggiornato' if res.get('ok') else 'errore'}: "
+                         f"nodi={res.get('nodes_after', '?')} "
+                         f"in {res.get('duration_s', '?')}s[/dim]")
+            except Exception:
+                pass
+        # Solo dopo il rebuild: il watcher non deve contendere il lock.
+        start_watcher()
+
+    threading.Thread(target=_worker, name="graphify-refresh", daemon=True).start()
+    return True
+
+
 def query(question, budget=2000, dfs=False):
     """BFS/DFS traversal del grafo per una domanda. Ritorna dict con testo."""
     if not question:

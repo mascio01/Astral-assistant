@@ -11,7 +11,6 @@ from .components import (
     prompt_label,
     status,
     table,
-    voice_confirm,
 )
 from . import tokens
 
@@ -22,7 +21,6 @@ __all__ = [
     "prompt_label",
     "status",
     "table",
-    "voice_confirm",
     "tokens",
 ]
 

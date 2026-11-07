@@ -16,12 +16,7 @@ import time  # noqa: F401
 from core.core_io import BASE_DIR
 from ui import (banner as ui_banner, prompt_label as ui_prompt_label,
                 confirm as ui_confirm, table as ui_table, error as ui_error)
-
-try:
-    from ui import stt_integration
-except Exception:  # pragma: no cover - dipendenza audio opzionale
-    stt_integration = None
-
+from ui.input_line import read_user_input
 
 def run_repl():
     """Esegue il REPL interattivo (ex ``astral.main``)."""
@@ -32,6 +27,7 @@ def run_repl():
         MODELS,
         MODEL_CODE,
         MODEL_CONVERSATION,
+        MODEL_REASONING,
         Markdown,
         Panel,
         Table,
@@ -43,10 +39,12 @@ def run_repl():
         _TOOL_ROUND_WARN2_DEFAULT,
         _build_verdict_input,
         _claim_session_slot,
+        _estimate_context_tokens,
+        _get_context_warn_pct,
+        _get_context_warn_tokens,
         _get_tool_round_limit,
         _get_tool_token_budget,
         _handle_task_command,
-        _lights_notify,
         _log_loop_diagnostic,
         _notify_turn_done,
         _parse_verdict_request,
@@ -74,7 +72,6 @@ def run_repl():
         log_error,
         maybe_offload_tool_result,
         print_telemetry,
-        read_voice_input,
         record_usage,
         repair_watchdog,
         route_model,
@@ -112,6 +109,7 @@ def run_repl():
             f"[bold]ROUTING[/]     [bold green]AUTO[/]  [dim]pool dinamico[/]\n"
             f"[bold]CHAT[/]        [dim]{MODEL_CONVERSATION}[/]\n"
             f"[bold]SVILUPPO[/]    [dim]{MODEL_CODE}[/]\n"
+            f"[bold]RAGIONAMENTO[/] [dim]{MODEL_REASONING}[/]\n"
             f"[bold]ATTIVO[/]      [bold cyan]{get_current_model()}[/]\n\n"
             f"[dim]Scrivi una richiesta oppure usa [/][bold cyan]/help[/][dim] per i comandi.[/]"
         ),
@@ -151,7 +149,12 @@ def run_repl():
             prompt_label = "Astral (Auto)" if cm == "auto" else cm
             _prompt_color = _SESSION_COLORS[_session_slot % len(_SESSION_COLORS)]
             set_session_color(_prompt_color)  # aggancia anche i messaggi "Elaborazione" allo stesso colore
-            user_input = console.input(f"\n{ui_prompt_label(prompt_label, _prompt_color)} ").strip()
+            # Input con bracketed paste: un testo multi-riga incollato entra
+            # come UN unico messaggio (niente popup del terminale) e viene
+            # ridotto a una sola riga stile LingoJam prima dell'invio.
+            user_input = read_user_input(
+                f"\n{ui_prompt_label(prompt_label, _prompt_color)}"
+            )
             if not user_input:
                 continue
             _busy = True
@@ -165,23 +168,6 @@ def run_repl():
             # La selfmap viene mantenuta dal watcher in background all'avvio;
             # non deve mai inserirsi tra INVIO e la chiamata OpenRouter.
 
-            if user_input.lower() == '/voice':
-                if stt_integration is None or not stt_integration.is_available():
-                    console.print(ui_error("STT non disponibile. Dettagli in error_log.txt."))
-                    continue
-                console.print("[dim]Ascolto... parla ora (max 60s, si ferma dopo 2.5s di silenzio)[/dim]")
-                _lights_notify("listen")  # casella ciano: microfono attivo
-                stt_text = stt_integration.transcribe(max_seconds=60)
-                if not stt_text:
-                    _lights_notify("error")  # casella rossa: nessun discorso rilevato
-                    log_error("voice/transcribe", "Trascrizione vuota: nessun parlato riconosciuto")
-                    console.print("[dim]Nessun discorso rilevato. Riprova.[/dim]")
-                    continue
-                # Finestra di conferma 1.5s: INVIO=invia, ESC=annulla, altrimenti modifica.
-                # Lo scadere del timer invia automaticamente la trascrizione.
-                user_input = read_voice_input(stt_text)
-                if not user_input:
-                    continue
             if user_input.lower() in ['exit', 'quit']:
                 checkpoint_save(messages)
                 save_persistent_history(messages)
@@ -707,6 +693,62 @@ def run_repl():
 
             # Live Sliding Window respiratorio: finestra sinusoidale + ledger (v2)
             messages = safe_trim_context(messages)
+
+            # [CONTESTO] Avviso di soglia: se il contesto stimato supera
+            # 'context_warn_tokens' ci si ferma e si chiede se continuare,
+            # cosi' l'utente puo' salvare/riepilogare prima che il trim
+            # respiratorio scarti i turni piu' vecchi (0 = disattivato).
+            # [CONTESTO] Soglia espressa come % della finestra del modello
+            # ATTIVO in questo turno: si adatta da sola quando il routing
+            # cambia modello (nessun avviso al cambio, solo se si supera la
+            # percentuale della finestra corrente). Fallback: soglia fissa.
+            _ctx_warn_pct = _get_context_warn_pct()
+            _ctx_warn = 0
+            _ctx_window = 0
+            if _ctx_warn_pct:
+                try:
+                    from core.benchmark_data import get_models
+                    _ctx_window = int(
+                        (get_models().get(active_model) or {}).get("contesto") or 0
+                    )
+                except Exception:
+                    _ctx_window = 0
+                if _ctx_window > 0:
+                    _ctx_warn = int(_ctx_window * _ctx_warn_pct / 100)
+            if not _ctx_warn:
+                _ctx_warn = _get_context_warn_tokens()
+            if _ctx_warn:
+                _ctx_tokens = _estimate_context_tokens(messages)
+                if _ctx_tokens > _ctx_warn:
+                    _ctx_pct = (
+                        f"{_ctx_tokens * 100 // _ctx_window}% di {_ctx_window:,}"
+                        if _ctx_window else f"soglia {_ctx_warn:,}"
+                    )
+                    console.print(ui_error(
+                        f"[!] Contesto conversazione ampio: ~{_ctx_tokens:,} token "
+                        f"stimati ({_ctx_pct}). Per non perdere il filo "
+                        "posso fermarmi qui: salva un checkpoint o riepiloga prima "
+                        "di proseguire."
+                    ))
+                    _sys_notify(
+                        "Astral - Contesto ampio",
+                        f"~{_ctx_tokens:,} token stimati ({_ctx_pct}): proseguo?",
+                        kind="context_warn",
+                    )
+                    try:
+                        _ctx_ans = ui_confirm("Continuo con questo contesto?")
+                    except Exception:
+                        _ctx_ans = "s"
+                    if (_ctx_ans or "").strip().lower() != "s":
+                        # Rimuove il messaggio utente appena accodato: il turno
+                        # non e' stato eseguito, quindi non deve restare in
+                        # cronologia (evita duplicati al prossimo invio).
+                        if messages and messages[-1].get("role") == "user":
+                            messages.pop()
+                        console.print("[dim]Turno sospeso: nessuna chiamata al modello. "
+                                      "Usa /checkpoint per salvare, poi riprendi.[/dim]")
+                        continue
+
             if last_meta.get("event") == "consolidate":
                 console.print(f"[dim][*] Respirazione: consolidamento (ciclo #{last_meta['cycle']}, "
                               f"{last_meta['facts']} fatti attivi, finestra {last_meta['window']} turni).[/dim]")
@@ -717,7 +759,7 @@ def run_repl():
                     tools_schema=gateway.select_schemas(user_input, context=messages),
                     primary_model=active_model)
             except Exception as e:
-                console.print(f"[orange_red1]{escape(str(e))}[/red]")
+                console.print(f"[orange_red1]{escape(str(e))}[/orange_red1]")
                 try:
                     from routing_engine import record_model_penalty, classify_input
                     record_model_penalty(
@@ -757,26 +799,48 @@ def run_repl():
             _soft_asked = False
             _warned_warn1 = False
             _warned_warn2 = False
+            _ctx_warned_in_loop = False
             while msg.tool_calls:
                 _tool_round += 1
                 # Budget token cumulati nel turno (0 = illimitato).
+                # [BUDGET-ASK] Al superamento della soglia NON interrompe:
+                # chiede conferma all'utente; se confermato, prosegue e
+                # richiede di nuovo ogni 1.2M token aggiuntivi (step).
+                _TOKEN_BUDGET_STEP = 1_200_000
                 if _tool_token_budget and _tool_tokens > _tool_token_budget:
-                    _tool_round_hit = True
-                    _tool_stop_reason = "token_budget"
-                    _log_loop_diagnostic(user_input, used_model, _tool_round - 1,
-                                         _tool_token_budget, reason="token_budget", tokens=_tool_tokens)
                     console.print(ui_error(
                         f"[!] Budget token del turno superato ({_tool_tokens:,} > "
-                        f"{_tool_token_budget:,}): interrompo il ciclo per contenere i costi. "
-                        "Riformula la richiesta o suddividila in passi piu' piccoli."
+                        f"{_tool_token_budget:,})."
                     ))
                     _sys_notify(
-                        "Astral - Turno interrotto",
+                        "Astral - Serve una conferma",
                         f"Budget token superato ({_tool_tokens:,} > {_tool_token_budget:,}): "
-                        "ciclo di tool interrotto per contenere i costi.",
-                        kind="token_budget",
+                        "interrompo il ciclo?",
+                        kind="token_budget_ask",
                     )
-                    break
+                    try:
+                        _ans = ui_confirm("Fermo il ciclo di tool?")
+                    except Exception:
+                        _ans = ""
+                    _log_loop_diagnostic(user_input, used_model, _tool_round - 1,
+                                         _tool_token_budget,
+                                         reason="token_budget_confirmed" if (_ans or "").strip().lower() == "s" else "token_budget_stopped",
+                                         tokens=_tool_tokens)
+                    if (_ans or "").strip().lower() != "s":
+                        _tool_round_hit = True
+                        _tool_stop_reason = "token_budget"
+                        console.print(ui_error(
+                            "[!] Ciclo interrotto su conferma utente. Riformula la "
+                            "richiesta o suddividila in passi piu' piccoli."
+                        ))
+                        break
+                    # Confermato: alza la soglia e ripetera' alla prossima
+                    # iterazione ogni _TOKEN_BUDGET_STEP token aggiuntivi.
+                    _tool_token_budget = max(_tool_token_budget, _tool_tokens) + _TOKEN_BUDGET_STEP
+                    console.print(ui_error(
+                        f"[!] Proseguo su conferma: prossimo controllo a "
+                        f"{_tool_token_budget:,} token."
+                    ))
                 # Limite assoluto di sicurezza: stop senza chiedere.
                 if _tool_round > _tool_round_hard:
                     _tool_round_hit = True
@@ -842,7 +906,7 @@ def run_repl():
                                              _tool_round_soft, reason="soft_declined", tokens=_tool_tokens)
                         break
                 if msg.content:
-                    console.print(f"[dim]{msg.content.strip()}[/dim]")
+                    console.print(msg.content.strip(), style="dim", markup=False)
                 # Strutturiamo il messaggio assistant con i tool calls
                 asst_tool_msg = {
                     "role": "assistant",
@@ -948,6 +1012,38 @@ def run_repl():
                     _tool_tokens += _usage_total_tokens(getattr(response, "usage", None))
                     print_telemetry(response, followup_model)
                     msg = response.choices[0].message
+
+                    # [CONTESTO] Il contesto cresce anche DENTRO il turno (ogni
+                    # round aggiunge tool call + risultati): ricontrollo la %
+                    # della finestra del modello attualmente in uso. Avviso
+                    # non bloccante, una sola volta per turno.
+                    if not _ctx_warned_in_loop:
+                        _ctx_warned_in_loop = True
+                        _lw_pct = _get_context_warn_pct()
+                        if _lw_pct:
+                            try:
+                                from core.benchmark_data import get_models
+                                _lw_win = int(
+                                    (get_models().get(followup_model) or {}).get("contesto") or 0
+                                )
+                            except Exception:
+                                _lw_win = 0
+                            if _lw_win > 0:
+                                _lw_tokens = _estimate_context_tokens(messages)
+                                if _lw_tokens > _lw_win * _lw_pct / 100:
+                                    console.print(ui_error(
+                                        f"[!] Contesto al {_lw_tokens * 100 // _lw_win}% "
+                                        f"della finestra di {followup_model} "
+                                        f"(~{_lw_tokens:,}/{_lw_win:,} token). "
+                                        "Se il turno si allunga, valuta di fermarti "
+                                        "e riepilogare."
+                                    ))
+                                    _sys_notify(
+                                        "Astral - Contesto quasi pieno",
+                                        f"{_lw_tokens * 100 // _lw_win}% della finestra "
+                                        f"di {followup_model}: valuta di fermarti.",
+                                        kind="context_warn",
+                                    )
                 except Exception as e:
                     tool_followup_error = str(e)
                     console.print(f"[orange_red1]{tool_followup_error}[/]")

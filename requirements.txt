@@ -11,6 +11,4 @@ httpx
 trafilatura
 curl_cffi
 
-# Audio opzionale (voce locale, stt_integration.py).
-numpy
-sounddevice
+# [RIMOSSO] Voce/STT disattivata: numpy e sounddevice non sono piu' richiesti.

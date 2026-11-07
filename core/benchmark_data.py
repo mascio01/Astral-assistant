@@ -5,7 +5,7 @@
 #  1) LiveBench: file statici alla root di https://livebench.ai/
 #     table_{YYYY_MM_DD}.csv + categories_{YYYY_MM_DD}.json
 #     La release corrente e' l'ULTIMO elemento dell'array di date (variabile
-#     minified "pe") dentro static/js/main.<hash>.js (oggi: 2026-06-25).
+#     minified "pe") dentro static/js/main.<hash>.js (verificare in .lb_sync_state.json).
 #     Salviamo la release nota in .lb_sync_state.json -> path dei file noti.
 #  2) OpenRouter: https://openrouter.ai/api/v1/models (API pubblica, no key).
 #     FONTE UNICA e REALE per il PREZZO (pricing prompt/completion in $/token)
@@ -625,13 +625,14 @@ def _build_models() -> dict:
 # 2 modelli per policy di costo: 0731 e' il default (input 0.04/M), 4.1-flash
 # entra solo su codice complesso (input 0.10/M). Il terzo modello serve solo il
 # ragionamento. gpt-6-luna rimosso: reasoning 8.18 e affidabilita' 5.59, il
-# piu' basso del pool su entrambi gli assi. Sostituito da qwen3.7-flash
-# (reasoning 8.74, affidabilita' 7.71, 0.03/0.13 $/M): stessi punteggi di
-# qwen3.8-flash (7.26 codice, 7.46 conversazione) a ~5x in meno sull'input.
+# piu' basso del pool su entrambi gli assi. Sostituito da glm-5.3-flash
+# (0.0285/0.0923 $/M, contesto 1M): piu' economico di qwen3.7-flash su
+# entrambi gli assi. Punteggi: la variante flash non e' ancora in LiveBench,
+# si usano come proxy quelli di glm-5.3 (8.5 codice, 8.0 conversazione).
 POOL_CANONICO = [
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash-1017",
-    "qwen/qwen3.7-flash",
+    "z-ai/glm-5.3-flash",
     "anthropic/claude-haiku-5.5",
 ]
 
@@ -639,7 +640,7 @@ POOL_CANONICO = [
 # conversazione per non alterare la policy di costo (il 0731 resta il default
 # economico dove non serve ragionamento forte).
 POOL_REASONING_ONLY = {
-    "qwen/qwen3.7-flash",
+    "z-ai/glm-5.3-flash",
 }
 
 
