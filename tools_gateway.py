@@ -25,7 +25,8 @@ TOOL_EVIDENCE_ENABLED = os.environ.get("ASTRAL_TOOL_EVIDENCE", "1") != "0"
 # call_tool e' il punto di ingresso REALE del modello: la guardia presente in
 # tools_exec.execute_tool non veniva mai raggiunta perche' il gateway chiama
 # direttamente _execute_tool_impl. La replichiamo qui, sullo stesso criterio:
-# la terza invocazione identica consecutiva viene rifiutata senza eseguire.
+# la N-esima invocazione identica consecutiva (N = _LOOP_MIN_REPEATS) viene
+# rifiutata senza eseguire.
 _LOOP_MIN_REPEATS = 6
 # [ANTI-LOOP] Oltre alla ripetizione ESATTA e consecutiva, intercettiamo anche:
 # - near-duplicate: stesso tool con argomenti che differiscono solo per dettagli

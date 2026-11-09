@@ -39,11 +39,23 @@ def test_latest_error_block_returns_last(tmp_path=None):
 
 
 def test_nessun_lettore_usa_la_prima_error():
-    """Nessun modulo attivo deve indicizzare starts[0] sul pattern ERROR."""
+    """Nessun modulo attivo deve indicizzare starts[0] sul pattern ERROR.
+
+    Lo scan e' limitato al codice PROPRIO del progetto: le directory di
+    terze parti / vendor / artefatti (rea/, re/, backups/, graphify-out/, ...)
+    contengono sorgenti non nostri in cui 'starts[0]' ha significati
+    totalmente diversi (es. header ELF in pwntools) e non sono lettori del
+    nostro error_log.txt.
+    """
     offenders = []
+    _SKIP_DIRS = (
+        "ecc_skills", "__pycache__", "residui", "scratch", ".git", "logs",
+        # codice di terze parti o artefatti non versionati
+        "rea", "re", "backups", "graphify-out", ".venv", "venv",
+        "ghidra_projects", "ps_jobs", ".astral_bus",
+    )
     for root, dirs, files in os.walk(_ROOT):
-        dirs[:] = [x for x in dirs if x not in
-                   ("ecc_skills", "__pycache__", "residui", "scratch", ".git", "logs")]
+        dirs[:] = [x for x in dirs if x not in _SKIP_DIRS]
         for name in files:
             if not name.endswith(".py"):
                 continue

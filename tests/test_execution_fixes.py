@@ -98,13 +98,14 @@ def test_g13_gateway_blocca_loop_identico():
         chiamate = []
         G._register("tool_finto", "test", "test", {},
                     lambda a: chiamate.append(1) or {"status": "ok"})
-        r1 = G.call_tool("tool_finto", {"x": 1})
-        r2 = G.call_tool("tool_finto", {"x": 1})
-        r3 = G.call_tool("tool_finto", {"x": 1})
-    assert not (r1 or {}).get("loop_guard")
-    assert not (r2 or {}).get("loop_guard")
-    assert r3.get("loop_guard") is True, r3
-    assert len(chiamate) == 2, chiamate
+        # La soglia e' data da _LOOP_MIN_REPEATS: le prime N-1 chiamate identiche
+        # vengono eseguite, la N-esima viene bloccata senza eseguire.
+        n = G._LOOP_MIN_REPEATS
+        risultati = [G.call_tool("tool_finto", {"x": 1}) for _ in range(n)]
+    for r in risultati[:-1]:
+        assert not (r or {}).get("loop_guard"), r
+    assert risultati[-1].get("loop_guard") is True, risultati[-1]
+    assert len(chiamate) == n - 1, (len(chiamate), n)
 
 
 def test_g13_reset_loop_state_sblocca_nuovo_turno():

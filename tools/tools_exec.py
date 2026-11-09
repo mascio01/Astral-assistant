@@ -14,7 +14,8 @@ import time
 # --- Guardia anti-loop (strutturale, non solo a prompt) ----------------------
 # Se lo stesso tool viene invocato con argomenti identici piu' volte di seguito,
 # rieseguirlo produce lo stesso output: il modello resta in loop bruciando token.
-# Qui la terza chiamata identica consecutiva viene rifiutata con un avviso.
+# Qui la N-esima chiamata identica consecutiva (N = _LOOP_MIN_REPEATS) viene
+# rifiutata con un avviso.
 _LOOP_MIN_REPEATS = 6
 _recent_calls = []
 
@@ -154,8 +155,8 @@ tools = [
 def execute_tool(name, args):
     """Wrapper n8n Pattern 3: timing + log JSONL; Pattern 2: 1 retry su eccezione imprevista.
 
-    Prima di eseguire applica la guardia anti-loop: la terza invocazione identica
-    consecutiva viene rifiutata senza eseguire nulla.
+    Prima di eseguire applica la guardia anti-loop: la N-esima invocazione
+    identica consecutiva (N = _LOOP_MIN_REPEATS) viene rifiutata senza eseguire nulla.
     """
     t0 = time.perf_counter()
     guard = _loop_guard(name, args)
