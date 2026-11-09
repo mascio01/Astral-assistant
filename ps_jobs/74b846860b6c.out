@@ -1,9 +1,0 @@
-occorrenze cached_tokens: 6
-524 : "SUM(cached_tokens) "
-528 : "SELECT SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(cached_tokens) "
-535 : "total_tokens": r[4] or 0, "cached_tokens": r[5] or 0}
-540 : "cached_tokens": tot[3] or 0},
-558 : "SELECT ts_utc, session_id, model, prompt_tokens, completion_tokens, total_tokens, cached_tokens "
-563 : "total_tokens": r[5] or 0, "cached_tokens": r[6] or 0} for r in rows]
---- test usage_rows ---
-ERRORE: OperationalError no such column: cached_tokens

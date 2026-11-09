@@ -1,2 +1,0 @@
-117: _ALLOWED_PATTERNS = (
-436: if d not in _SKIP_DIRS and not d.startswith(".")]

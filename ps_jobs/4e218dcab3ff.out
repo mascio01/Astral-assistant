@@ -1,5 +1,0 @@
-[URL] nicolomascella: https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=233945553296-gfqcncbl0peuuphe5ufhht723411k6gv.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A8767%2F&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar&state=oJBBuG581lptR5WUtdi5J6PldU70c2&code_challenge=oGl9y8H5K0LfY_leClvFbf4E1uM6Y-b-4sDT7Mbuom8&code_challenge_method=S256&access_type=offline&prompt=consent&include_granted_scopes=true
-[ATTESA] In ascolto su http://localhost:8767/ (max 900s)
-[OK] nicolomascella: token salvato in C:\Users\Nicol�\Astral Assistant\.gcal_tokens\nicolomascella.json
-
-Completato: 1/1

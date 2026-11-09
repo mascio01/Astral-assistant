@@ -1,5 +1,0 @@
-[URL] mascio666: https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=233945553296-gfqcncbl0peuuphe5ufhht723411k6gv.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A8766%2F&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar&state=z2yLo6sThrtPpoFr03VnlbBPYpVKGT&code_challenge=ffc8JqhU-MMAybcGUNDq_UYI-r5YAoELJ2L9e23kjr4&code_challenge_method=S256&access_type=offline&prompt=consent&include_granted_scopes=true
-[ATTESA] In ascolto su http://localhost:8766/ (max 900s)
-[OK] mascio666: token salvato in C:\Users\Nicol�\Astral Assistant\.gcal_tokens\mascio666.json
-
-Completato: 1/1

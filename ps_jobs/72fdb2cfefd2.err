@@ -1,7 +1,0 @@
-py : C:\Users\Nicol�\AppData\Local\Python\pythoncore-3.14-64\python.exe: No module named pytest
-In riga:1 car:106
-+ ... tion "C:\Users\Nicolò\Astral Assistant"; py -m pytest -q 2>&1 | Selec ...
-+                                              ~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (C:\Users\Nicol�...le named pytest:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 

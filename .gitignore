@@ -173,3 +173,22 @@ tools/platform-tools/
 .or_live_models.json
 
 ffrs_controller_mapper.py
+
+# --- Artefatti generati / non essenziali al funzionamento di Astral ---
+# Job PowerShell e output subagent sono log runtime rigenerabili.
+ps_jobs/
+agents/out/
+# Copia storica di file gia' presenti nella root.
+residui/
+# Log di test e DB vuoto residuo
+error_log_test.txt
+memory.db
+# Stato sessione locale
+.session_checkpoint.json
+# Artefatti graphify nella root (la copia viva sta in graphify-out/, gia' ignorata)
+/graph.json
+/manifest.json
+/.graphify_labels*.json
+# Documentazione pacchetto upstream Graphify (solo riferimento)
+/g_readme.md
+/g_pyproject.toml

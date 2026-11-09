@@ -1,4 +1,0 @@
-POOL_CANONICO type: <class 'list'> len 4
-ROUTING_POOL type: <class 'list'> len 4
-missing in ROUTING_POOL: []
-extra in ROUTING_POOL: []

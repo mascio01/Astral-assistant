@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "<string>", line 3, in <module>
-    from core.routing_engine import POOL_CANONICO, ROUTING_POOL
-ModuleNotFoundError: No module named 'core.routing_engine'

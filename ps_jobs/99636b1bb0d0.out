@@ -1,5 +1,0 @@
-[URL] mascella.student: https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=233945553296-gfqcncbl0peuuphe5ufhht723411k6gv.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A8765%2F&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar&state=GQ52e5zJ7L6q91TFSv7ET71K6Ynryl&code_challenge=qEfoNSMAgOvcVNmDO0B9TzX2tqhNw3_jqs0LMQItnS4&code_challenge_method=S256&access_type=offline&prompt=consent&include_granted_scopes=true
-[ATTESA] In ascolto su http://localhost:8765/ (max 900s)
-[OK] mascella.student: token salvato in C:\Users\Nicol�\Astral Assistant\.gcal_tokens\mascella.student.json
-
-Completato: 1/1

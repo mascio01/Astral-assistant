@@ -1,6 +1,0 @@
-79|            "sources": [|
-80|                {"id": "benchmark_data", "pattern": "benchmark_data.py",|
-81|                 "role": "interpretation", "required": True,|
-82|                 "description": "Logica di lettura e normalizzazione dei benchmark."},|
-83|                {"id": "lb_table", "pattern": ".lb_table_*.csv", "role": "data",|
-84|                 "required": True, "freshness_days": 30,|

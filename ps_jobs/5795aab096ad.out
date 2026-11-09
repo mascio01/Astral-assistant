@@ -1,3 +1,0 @@
-has POOL_CANONICO: False
-has ROUTING_POOL: True
-has is_ds41: False
