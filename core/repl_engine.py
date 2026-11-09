@@ -213,6 +213,7 @@ def run_repl():
                     f"  [bold cyan]/execlog[/] [n]   log esecuzioni tool\n"
                     f"  [bold cyan]/usage[/] [g]     costi [dim]--csv | prices[/]  |  [bold cyan]/model[/] <nome>\n\n"
                     f"[bold]AGENTI[/]\n"
+                    f"  [bold cyan]/peer[/]        finestra chat peer-to-peer (parallela)\n"
                     f"  [bold cyan]/verdict[/] [lite] <quesito>   giudici anonimi\n"
                     f"  [bold cyan]/subagent[/] scout|review [file]   subagent detached\n\n"
                     f"[dim]Scrivi una richiesta libera oppure usa i comandi sopra.[/]",
@@ -350,6 +351,21 @@ def run_repl():
             if lower_input == "/stats":
                 stats = get_telemetry_stats()
                 console.print(stats)
+                continue
+
+            # --- /peer: finestra figlia di chat peer-to-peer (detached) ---
+            if lower_input in ("/peer", "/peer-window"):
+                try:
+                    from ui import peer_window as _pw
+                    _info = _pw.open_window()
+                    if _info.get("error"):
+                        console.print(ui_error(f"[!] finestra peer: {_info['error']}"))
+                    elif _info.get("already_open"):
+                        console.print(f"[dim][*] finestra peer gia' aperta (pid {_info['pid']})[/dim]")
+                    else:
+                        console.print(f"[dim][*] finestra peer avviata (pid {_info['pid']})[/dim]")
+                except Exception as _e_pw:
+                    console.print(ui_error(f"[!] /peer errore: {type(_e_pw).__name__}: {_e_pw}"))
                 continue
 
             # --- /scrape: scraper interno eccellente (tools_scrape) ---
