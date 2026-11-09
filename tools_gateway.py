@@ -826,6 +826,12 @@ def _h_peer_inbox(args):
     return pb.fetch_messages(consume=a.get("consume", True))
 
 
+def _h_peer_window(args):
+    """Apre la finestra figlia di chat peer (processo detached, idempotente)."""
+    from ui import peer_window as pw
+    return pw.open_window()
+
+
 def _h_peer_file(args):
     from tools import peer_bridge as pb
     a = args or {}
@@ -982,6 +988,16 @@ def _register_peer_bridge():
                       "node": {"type": "string", "description": "Filtro per pull"},
                       "extra": {"type": "object", "description": "Dati aggiuntivi da condividere"}}}}},
               _h_peer_context, timeout=60.0, read_only=False)
+    _register("peer_window", "peer",
+              "Apre una finestra figlia di chat peer che resta attiva in parallelo alla console.",
+              {"type": "function", "function": {
+                  "name": "peer_window",
+                  "description": ("Apre una finestra figlia detached con la chat peer-to-peer: legge i "
+                                  "messaggi in arrivo e permette di inviarne senza sbloccare il REPL. "
+                                  "Resta aperta finche' l'utente non la chiude; idempotente (se e' gia' "
+                                  "aperta ritorna il PID esistente)."),
+                  "parameters": {"type": "object", "properties": {}}}},
+              _h_peer_window, timeout=20.0, read_only=False)
 
 
 def _register_knowmap():

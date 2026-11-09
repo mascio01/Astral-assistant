@@ -356,6 +356,21 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 # --------------------------------------------------------------- start / stop
+class _Server(ThreadingHTTPServer):
+    """ThreadingHTTPServer che non sputa traceback su disconnessioni normali."""
+
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError,
+                            BrokenPipeError, TimeoutError)):
+            return  # client andato via: rumore, non errore
+        super().handle_error(request, client_address)
+
+
 def start_server(port=None):
     """Avvia il server HTTP+UDP in background (idempotente)."""
     if _SERVER["httpd"] is not None:
@@ -367,7 +382,7 @@ def start_server(port=None):
     last_err = None
     for candidate in range(port, port + 12):
         try:
-            httpd = ThreadingHTTPServer(("0.0.0.0", candidate), _Handler)
+            httpd = _Server(("0.0.0.0", candidate), _Handler)
             port = candidate
             break
         except Exception as e:
