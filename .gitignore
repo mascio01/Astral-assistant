@@ -192,3 +192,9 @@ memory.db
 # Documentazione pacchetto upstream Graphify (solo riferimento)
 /g_readme.md
 /g_pyproject.toml
+
+# Peer bridge: stato runtime locale (inbox/outbox/config con token) - mai versionato
+.astral_peer/
+# Credenziali e manifest Google Drive (dati personali)
+gdrive_token_*.pickle
+gdrive_manifest_*.json

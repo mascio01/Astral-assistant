@@ -473,7 +473,24 @@ from core.session_manager import (
 def main():
     # [P2 audit azione ciclo1] Il REPL vive in core/repl_engine.py.
     from core.repl_engine import run_repl
+    _start_peer_bridge()
     return run_repl()
+
+
+def _start_peer_bridge():
+    """Avvia il bridge LAN peer-to-peer in background (best-effort).
+
+    Serve a far comunicare due sessioni Astral su PC diversi: se il bind della
+    porta fallisce (firewall, porta occupata) la sessione parte comunque.
+    """
+    try:
+        from tools import peer_bridge as _pb
+        info = _pb.start_server()
+        if info.get("ok"):
+            console.print("[dim][peer] bridge LAN attivo su porta %s (node %s)[/]"
+                          % (info.get("port"), info.get("node_id")))
+    except Exception:
+        pass
 
 
 def _handle_task_command(user_input):

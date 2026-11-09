@@ -822,11 +822,16 @@ def run_repl():
                         _ans = ui_confirm("Fermo il ciclo di tool?")
                     except Exception:
                         _ans = ""
+                    # [FIX] La domanda e' "Fermo il ciclo?": si interrompe SOLO su
+                    # risposta affermativa esplicita (s/si/y/yes). Qualsiasi altra
+                    # risposta (incluso "n") significa "continua".
+                    _ans_norm = (_ans or "").strip().lower()
+                    _stop_cycle = _ans_norm in ("s", "si", "sì", "y", "yes", "1")
                     _log_loop_diagnostic(user_input, used_model, _tool_round - 1,
                                          _tool_token_budget,
-                                         reason="token_budget_confirmed" if (_ans or "").strip().lower() == "s" else "token_budget_stopped",
+                                         reason="token_budget_stopped" if _stop_cycle else "token_budget_confirmed",
                                          tokens=_tool_tokens)
-                    if (_ans or "").strip().lower() != "s":
+                    if _stop_cycle:
                         _tool_round_hit = True
                         _tool_stop_reason = "token_budget"
                         console.print(ui_error(
@@ -899,7 +904,8 @@ def run_repl():
                         _ans = ui_confirm("Proseguo con altri round di tool?")
                     except Exception:
                         _ans = ""
-                    if (_ans or "").strip().lower() != "s":
+                    # [FIX] Accetta le varianti affermative comuni, non solo "s".
+                    if (_ans or "").strip().lower() not in ("s", "si", "sì", "y", "yes", "1"):
                         _tool_round_hit = True
                         _tool_stop_reason = "soft_declined"
                         _log_loop_diagnostic(user_input, used_model, _tool_round - 1,

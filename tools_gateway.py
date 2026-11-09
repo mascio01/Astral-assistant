@@ -591,6 +591,7 @@ def _build_schemas():
                   timeout=300.0, read_only=True)
 
     _register_knowmap()
+    _register_peer_bridge()
     _register_verdict()
     _register_ecc_skills()
     _register_graphify()
@@ -773,6 +774,216 @@ def _register_ecc_skills():
               _h_ecc_skill_create, timeout=15.0, read_only=False)
 
 
+# --- Peer bridge: collegamento LAN tra sessioni Astral su PC diversi ---
+def _h_peer_status(args):
+    from tools import peer_bridge as pb
+    return pb.status()
+
+
+def _h_peer_start(args):
+    from tools import peer_bridge as pb
+    return pb.start_server((args or {}).get("port"))
+
+
+def _h_peer_add(args):
+    from tools import peer_bridge as pb
+    a = args or {}
+    if not a.get("node"):
+        return {"error": "serve 'node' (node_id o hostname del peer)"}
+    return pb.add_peer(a["node"], a.get("host"), a.get("port"), a.get("token"))
+
+
+def _h_peer_discover(args):
+    from tools import peer_bridge as pb
+    cfg = pb.load_config()
+    found = pb.udp_discover(timeout=float((args or {}).get("timeout") or 1.6))
+    for info in found:
+        pb.add_peer(info["node_id"], info.get("ip"), info.get("port"), cfg["token"])
+    return {"found": len(found), "peers": found,
+            "note": "il token condiviso va allineato a mano la prima volta",
+            "local_node": cfg["node_id"]}
+
+
+def _h_peer_pair(args):
+    from tools import peer_bridge as pb
+    a = args or {}
+    if not a.get("host"):
+        return {"error": "serve 'host' (IP del peer)"}
+    return pb.pair(a["host"], a.get("port"), a.get("token"), a.get("node"))
+
+
+def _h_peer_send(args):
+    from tools import peer_bridge as pb
+    a = args or {}
+    if not a.get("text"):
+        return {"error": "serve 'text'"}
+    return pb.send_message(a["text"], a.get("to"), a.get("kind") or "chat", a.get("meta"))
+
+
+def _h_peer_inbox(args):
+    from tools import peer_bridge as pb
+    a = args or {}
+    return pb.fetch_messages(consume=a.get("consume", True))
+
+
+def _h_peer_file(args):
+    from tools import peer_bridge as pb
+    a = args or {}
+    if not a.get("path"):
+        return {"error": "serve 'path'"}
+    if a.get("mode") == "share":
+        return pb.share_file(a["path"], a.get("to"))
+    return pb.send_file(a["path"], a.get("to"), a.get("note") or "")
+
+
+def _h_peer_fetch_file(args):
+    from tools import peer_bridge as pb
+    a = args or {}
+    if not a.get("url"):
+        return {"error": "serve 'url'"}
+    return pb.download_file(a["url"], a.get("dest_dir"), a.get("token"))
+
+
+def _h_peer_context(args):
+    from tools import peer_bridge as pb
+    a = args or {}
+    if a.get("action") == "pull":
+        return pb.pull_context(a.get("node"))
+    return pb.push_context(a.get("to"), a.get("extra"))
+
+
+def _h_peer_peers(args):
+    from tools import peer_bridge as pb
+    return {"peers": pb.list_peers(), "local": pb.status()}
+
+
+def _register_peer_bridge():
+    _register("peer_status", "peer",
+              "Stato del bridge LAN: node_id, porta, IP locali, messaggi in attesa, peer registrati.",
+              {"type": "function", "function": {
+                  "name": "peer_status",
+                  "description": ("Mostra lo stato del bridge peer-to-peer LAN di questa sessione "
+                                  "Astral: node_id, porta HTTP, IP locali, messaggi in attesa e "
+                                  "peer registrati. Prima chiamata da fare quando si vuole "
+                                  "collegare due sessioni."),
+                  "parameters": {"type": "object", "properties": {}}}},
+              _h_peer_status, timeout=15.0, read_only=True)
+    _register("peer_start", "peer",
+              "Avvia il server HTTP+UDP del bridge LAN su questa macchina.",
+              {"type": "function", "function": {
+                  "name": "peer_start",
+                  "description": ("Avvia il server peer-to-peer (HTTP su LAN + discovery UDP) di "
+                                  "questa sessione Astral. Idempotente. Ritorna node_id e token "
+                                  "da usare sull'altro PC."),
+                  "parameters": {"type": "object", "properties": {
+                      "port": {"type": "integer", "description": "Porta HTTP (default 8787)"}}}}},
+              _h_peer_start, timeout=20.0, read_only=False)
+    _register("peer_add", "peer",
+              "Registra un peer Astral (host/IP, porta, token) per potergli inviare dati.",
+              {"type": "function", "function": {
+                  "name": "peer_add",
+                  "description": ("Registra o aggiorna un peer Astral: node_id, host/IP e porta. Il "
+                                  "token e' quello locale salvo diverso (deve essere identico sui "
+                                  "due PC)."),
+                  "parameters": {"type": "object", "properties": {
+                      "node": {"type": "string", "description": "node_id o hostname del peer"},
+                      "host": {"type": "string", "description": "IP o hostname raggiungibile"},
+                      "port": {"type": "integer", "description": "Porta HTTP del peer (default 8787)"},
+                      "token": {"type": "string", "description": "Token condiviso del peer"}},
+                      "required": ["node"]}}},
+              _h_peer_add, timeout=15.0, read_only=False)
+    _register("peer_discover", "peer",
+              "Cerca con broadcast UDP gli altri Astral attivi sulla stessa rete e li registra.",
+              {"type": "function", "function": {
+                  "name": "peer_discover",
+                  "description": ("Discovery UDP: trova le altre sessioni Astral con il bridge attivo "
+                                  "sulla stessa LAN e le registra automaticamente."),
+                  "parameters": {"type": "object", "properties": {
+                      "timeout": {"type": "number", "description": "Secondi di ascolto (default 1.6)"}}}}},
+              _h_peer_discover, timeout=30.0, read_only=False)
+    _register("peer_peers", "peer",
+              "Elenca i peer registrati e lo stato locale del bridge.",
+              {"type": "function", "function": {
+                  "name": "peer_peers",
+                  "description": "Elenca i peer Astral registrati con host, porta e stato locale.",
+                  "parameters": {"type": "object", "properties": {}}}},
+              _h_peer_peers, timeout=15.0, read_only=True)
+    _register("peer_pair", "peer",
+              "Pairing automatico con un altro Astral: scambia i token e registra entrambi.",
+              {"type": "function", "function": {
+                  "name": "peer_pair",
+                  "description": ("Collega due sessioni Astral in un colpo: contatta il peer, verifica "
+                                  "che risponda e scambia i token in modo che entrambi si accettino. "
+                                  "Dopo questo basta peer_send/peer_file/peer_context."),
+                  "parameters": {"type": "object", "properties": {
+                      "host": {"type": "string", "description": "IP o hostname del peer"},
+                      "port": {"type": "integer", "description": "Porta HTTP del peer (default 8787)"},
+                      "token": {"type": "string", "description": "Token del peer (default: il proprio)"},
+                      "node": {"type": "string", "description": "Etichetta del peer (opzionale)"}},
+                      "required": ["host"]}}},
+              _h_peer_pair, timeout=40.0, read_only=False)
+    _register("peer_send", "peer",
+              "Invia un messaggio testuale a un peer Astral (chat, comando, avviso).",
+              {"type": "function", "function": {
+                  "name": "peer_send",
+                  "description": ("Invia un messaggio testuale all'altra sessione Astral: puo' essere "
+                                  "una richiesta, un risultato o un avviso. kind='task'|'chat'|'alert'."),
+                  "parameters": {"type": "object", "properties": {
+                      "text": {"type": "string", "description": "Testo del messaggio"},
+                      "to": {"type": "string", "description": "node_id del destinatario (default: unico peer)"},
+                      "kind": {"type": "string", "enum": ["chat", "task", "alert", "result"]},
+                      "meta": {"type": "object", "description": "Metadati liberi"}},
+                      "required": ["text"]}}},
+              _h_peer_send, timeout=40.0, read_only=False)
+    _register("peer_inbox", "peer",
+              "Legge i messaggi arrivati dai peer (e li marca come letti).",
+              {"type": "function", "function": {
+                  "name": "peer_inbox",
+                  "description": ("Legge i messaggi in arrivo dalle altre sessioni Astral. Di default li "
+                                  "consuma (consume=false per rileggerli)."),
+                  "parameters": {"type": "object", "properties": {
+                      "consume": {"type": "boolean", "description": "Sposta i letti in inbox/read (default true)"}}}}},
+              _h_peer_inbox, timeout=20.0, read_only=False)
+    _register("peer_file", "peer",
+              "Invia o condivide un file con un peer Astral.",
+              {"type": "function", "function": {
+                  "name": "peer_file",
+                  "description": ("Invia un file all'altra sessione (mode='push', max 32MB) oppure lo mette "
+                                  "in condivisine locale restituendo l'URL di download (mode='share')."),
+                  "parameters": {"type": "object", "properties": {
+                      "path": {"type": "string", "description": "Percorso completo del file"},
+                      "to": {"type": "string", "description": "node_id destinatario"},
+                      "mode": {"type": "string", "enum": ["push", "share"], "description": "Default push"},
+                      "note": {"type": "string", "description": "Nota allegata"}},
+                      "required": ["path"]}}},
+              _h_peer_file, timeout=180.0, read_only=False)
+    _register("peer_fetch_file", "peer",
+              "Scarica un file da un URL del bridge peer (peer_file mode=share).",
+              {"type": "function", "function": {
+                  "name": "peer_fetch_file",
+                  "description": ("Scarica un file da un altro peer dato l'URL restituito da peer_file "
+                                  "mode='share'. Senza token usa quello locale."),
+                  "parameters": {"type": "object", "properties": {
+                      "url": {"type": "string", "description": "URL http://host:porta/file/nome"},
+                      "dest_dir": {"type": "string", "description": "Cartella di destinazione"},
+                      "token": {"type": "string", "description": "Token del peer sorgente"}},
+                      "required": ["url"]}}},
+              _h_peer_fetch_file, timeout=180.0, read_only=False)
+    _register("peer_context", "peer",
+              "Condivide o legge il contesto di sessione (checkpoint, git, selfmap, note) tra peer.",
+              {"type": "function", "function": {
+                  "name": "peer_context",
+                  "description": ("Sincronizza il contesto di lavoro tra le due sessioni: action='push' invia "
+                                  "checkpoint, stato git, testa della selfmap e note; action='pull' legge gli "
+                                  "snapshot ricevuti dai peer."),
+                  "parameters": {"type": "object", "properties": {
+                      "action": {"type": "string", "enum": ["push", "pull"], "description": "Default push"},
+                      "to": {"type": "string", "description": "node_id destinatario"},
+                      "node": {"type": "string", "description": "Filtro per pull"},
+                      "extra": {"type": "object", "description": "Dati aggiuntivi da condividere"}}}}},
+              _h_peer_context, timeout=60.0, read_only=False)
+
+
 def _register_knowmap():
     _register("knowmap_lookup", "knowledge", 
               "Cerca topic nella Knowledge Map e restituisce metadati bounded; non legge file interi.",
@@ -903,6 +1114,9 @@ _NAMESPACE_TRIGGERS = {
                   r"metodolog|workflow|procedura|come si fa|"
                   r"graphify|knowledge graph|grafo|architettur|dipenden|"
                   r"god[ -]?node|hub|impatto a monte",),
+    "peer": (r"\bpeer\b|colleg\w* (?:le |tra )?(?:due )?session|altra sessione|"
+             r"altro (?:pc|computer)|secondo (?:pc|computer)|tra i due|passa\w* (?:dati|file|messagg)|"
+             r"scambi\w*|bridge|\blan\b|rete locale|sincronizz|condivid\w*|nicol",),
     "verdict": (r"verdetto|verdict|giudic|giudizi|consiglio|dubbio|deliber|parere|"
                 r"controvers|decision|decid|valuta|critica avversar",),
     "rea": (r"reverse|re\W?versing|\bbinari|disassembl|decompil|ghidra|hopper|\bida\b|"
