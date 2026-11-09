@@ -198,3 +198,5 @@ memory.db
 # Credenziali e manifest Google Drive (dati personali)
 gdrive_token_*.pickle
 gdrive_manifest_*.json
+# Script locale di upload su Google Drive (contiene percorsi/ID personali)
+upload_giove_drive.py
