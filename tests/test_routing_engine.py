@@ -375,6 +375,28 @@ def test_score_preferisce_il_costo_osservato():
     assert costo_caro > costo_eco
 
 
+def test_penalita_costo_cresce_col_premio_percentuale():
+    """Il costo deve pesare in modo prevedibile: +60% costa ~4 punti su 10."""
+    base = 0.0001
+    premio_60 = {"breve": {"openai/gpt-5.6-luna": base * 1.60}}
+    premio_10 = {"breve": {"openai/gpt-5.6-luna": base * 1.10}}
+    _, _, _, _, c60, _, _ = R._score(
+        dict(R.DEFAULT_BENCHMARK), "openai/gpt-5.6-luna", "codice", {}, premio_60, pool=POOL)
+    _, _, _, _, c10, _, _ = R._score(
+        dict(R.DEFAULT_BENCHMARK), "openai/gpt-5.6-luna", "codice", {}, premio_10, pool=POOL)
+    assert c10 < c60
+
+
+def test_modello_molto_caro_non_batte_il_piu_economico():
+    """Un modello 30x piu' caro non deve vincere a parita' di qualita'."""
+    costs = {"breve": {"claude-haiku-5.5": 0.00128,
+                       "deepseek-v4.1-flash": 0.00004}}
+    bench = dict(R.DEFAULT_BENCHMARK)
+    caro = R._score(bench, "claude-haiku-5.5", "codice", {}, costs, pool=POOL)[0]
+    eco = R._score(bench, "deepseek-v4.1-flash", "codice", {}, costs, pool=POOL)[0]
+    assert eco > caro
+
+
 # ------------------------------------------------------------ esiti e apprendimento
 
 def test_classify_outcome():

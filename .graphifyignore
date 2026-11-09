@@ -1,0 +1,24 @@
+﻿# .graphifyignore - esclusioni per il knowledge graph di Astral Assistant.
+# Sintassi gitignore. Le regole qui hanno priorita' massima sul grafo.
+#
+# rea/ e' un repository separato (tool di reverse engineering, ~5800 file)
+# con il proprio .git e la propria suite di test: tenerlo nel grafo di Astral
+# gonfia il rebuild (2300+ nodi, ~28s) e lo fa fallire per via di alcune
+# fixture con nomi file UTF-8 non validi.
+rea/
+
+# Directory di lavoro, cache e output rigenerabili
+backups/
+scratch/
+residui/
+ps_jobs/
+chat_history/
+ghidra_projects/
+ecc_skills/
+scrape_cache/
+reminders/
+verdicts/
+graphify-out/
+whisper_bin/
+node_modules/
+__pycache__/

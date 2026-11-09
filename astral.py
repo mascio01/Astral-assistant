@@ -654,9 +654,11 @@ if __name__ == "__main__":
     try:
         from utils import selfmap
 
-        selfmap.generate()  # indice semantico completo ad ogni avvio
+        if selfmap.is_stale():  # rigenera solo se i sorgenti sono piu' recenti della mappa
+            selfmap.generate()  # indice semantico completo
         selfmap.refresh_bootstrap()  # contesto minimo derivato e verificabile
-        selfmap.refresh_knowledge_map()  # indice separato della conoscenza distribuita
+        # KM03: hash catalogo + stat fonti, rigenera solo se qualcosa e' cambiato
+        selfmap.refresh_knowledge_map_if_needed()
         selfmap.start_watcher()  # sincronizzazione continua durante il runtime
     except Exception:
         pass  # mai bloccare l'avvio per la mappa

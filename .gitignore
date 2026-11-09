@@ -157,3 +157,19 @@ filter_rules.txt
 
 # Scratch: sempre ignorato (policy Astral)
 scratch/
+
+# REA: repository separato (proprio .git, ~5800 file) - mai versionato qui
+rea/
+
+# Directory di lavoro REA: APK estratti, output job, inventari (rigenerabili)
+work/
+_rea_jobs/
+stick_inventory.txt
+
+# Android platform-tools: binari di terze parti (~17 MB), da scaricare a parte
+tools/platform-tools/
+
+# Cache locale dei modelli OpenRouter (rigenerata a runtime)
+.or_live_models.json
+
+ffrs_controller_mapper.py

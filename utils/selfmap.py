@@ -207,6 +207,7 @@ from core import knowledge_map as _km
 KNOWMAP_JSON = _km.MAP_JSON
 KNOWMAP_MD = _km.MAP_MD
 refresh_knowledge_map = _km.refresh_knowledge_map
+refresh_knowledge_map_if_needed = _km.refresh_if_needed
 knowledge_map_prompt_hint = _km.knowledge_map_prompt_hint
 knowledge_map_lookup = _km.knowledge_map_lookup
 knowledge_map_diagnostics = _km.diagnostics

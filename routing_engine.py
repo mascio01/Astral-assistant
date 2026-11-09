@@ -37,6 +37,24 @@ AUDIT_KEEP_BYTES = 6 * 1024 * 1024
 # budget in base al credito residuo (set_budget_tier, chiamato da astral.py
 # una volta per sessione; vedi _effective_pes()).
 PESI = {"qualita": 0.7, "costo": 0.3}
+
+# --- Controllo prezzi -------------------------------------------------------
+# La penalita' di costo e' espressa in punti sulla scala 0-10 del sotto-score
+# "costo" (che poi pesa PESI["costo"]). Forma LOGARITMICA nel premio percentuale
+# rispetto al modello piu' economico del pool: cresce in fretta sui premi piccoli
+# e si appiattisce sui premi enormi, cosi' un modello 6x piu' caro non diventa
+# automaticamente peggiore di uno 2x piu' caro (con la forma lineare precedente
+# ogni premio sopra il 75% finiva sullo stesso cap e il costo smetteva di
+# discriminare: 0731, glm e haiku prendevano tutti la stessa penalita').
+#   premio +112% -> penalita' ~0.68 punti (costo 10 -> 9.32)
+#   premio +225% -> penalita' ~1.06 punti
+#   premio +650% -> penalita' ~1.81 punti
+# Il cap resta come rete di sicurezza per premi estremi (oltre ~800x).
+# Sotto COST_FREE_PREMIUM non c'e' penalita': differenze di prezzo irrilevanti
+# non devono mai decidere il routing.
+COST_FREE_PREMIUM = 0.10      # +10% sul piu' economico: gratis
+COST_LOG_K = 0.9              # pendenza della curva logaritmica
+COST_PENALTY_CAP = 6.0        # mai annullare del tutto la qualita'
 # Tier budget: sotto soglie di credito residuo il costo pesa di piu'.
 # (soglia_usd, peso_costo): il primo tier applicabile vince; None = peso base.
 BUDGET_TIERS = [
@@ -889,8 +907,13 @@ def _score(bench: dict, modello: str, categoria: str, personal: dict,
                      if observed else fallback_cost(model, model_bench))
     peers = [value for value in peers if value > 0]
     baseline = max(1e-9, min(peers or [costo_k]))
-    # Logaritmica: il costo pesa, ma non annulla la qualita'.
-    costo_penalty = min(3.0, 0.9 * math.log1p(max(0.0, costo_k / baseline - 1.0)))
+    # Premio percentuale sul modello piu' economico del pool.
+    premio = max(0.0, costo_k / baseline - 1.0)
+    premio_netto = max(0.0, premio - COST_FREE_PREMIUM)
+    # Logaritmica: il costo pesa, ma non annulla la qualita' e non satura
+    # sui premi realistici del pool (che vanno da +100% a +650%).
+    costo_penalty = min(COST_PENALTY_CAP,
+                        COST_LOG_K * math.log1p(premio_netto))
     score = PESI["qualita"] * qualita + PESI["costo"] * max(0.0, 10.0 - costo_penalty)
     return (round(score, 3), round(ufficiale, 3),
             round(personale, 3) if personale is not None else None,
