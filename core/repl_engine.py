@@ -118,6 +118,24 @@ def run_repl():
         border_style="bright_cyan",
     ))
 
+    # Canale relay: il figlio headless e' legato a QUESTA sessione. Se il canale
+    # e' gia' posseduto da un'altra istanza di Astral non si tocca nulla:
+    # l'avvio in questa sessione richiede /peer-on esplicito.
+    try:
+        from core import relay_channel as _rc_boot
+        _boot = _rc_boot.ensure_channel()
+        if _boot.get("manual_required"):
+            console.print(f"[dim][peer] canale relay in uso da un'altra sessione "
+                          f"(pid {(_boot.get('owner_info') or {}).get('pid')}): "
+                          f"/peer-on per avviarlo qui.[/dim]")
+        elif _boot.get("error"):
+            console.print(f"[dim][peer] canale non avviato: {_boot['error']}[/dim]")
+        elif _boot.get("started"):
+            console.print(f"[dim][peer] canale relay di questa sessione attivo "
+                          f"(figlio pid {_boot.get('pid')})[/dim]")
+    except Exception:
+        pass
+
     messages = get_history()
     loop_det = LoopDetector()
     session_first_msg = True
@@ -145,6 +163,29 @@ def run_repl():
                     set_budget_tier(*check_credits())
                 except Exception:
                     pass  # il routing resta sui pesi base in caso di errore
+            # Canale relay: la madre legge cio' che i figli hanno consegnato.
+            # In modalita' ACTIVE gli eventi entrano nel contesto come DATI non
+            # istruzione; in IDLE si avvisa l'utente e i messaggi restano in
+            # attesa finche' lui non da' il via libera con /peer-on.
+            try:
+                from core import relay_channel as _rc
+                _tick = _rc.mother_tick()
+                if _tick.get("inject"):
+                    messages.append({"role": "user", "content": _tick["inject"]})
+                    console.print(f"[dim][peer] {len(_tick['events'])} messaggi dal canale "
+                                  f"inseriti nel contesto.[/dim]")
+                elif _tick.get("owner_other"):
+                    pass  # canale di un'altra sessione: non interferire
+                elif _tick.get("notices"):
+                    console.print("[bold orange_red1][peer] un'altra sessione Astral vuole "
+                                  "comunicare:[/]")
+                    for _n in _tick["notices"]:
+                        console.print(f"[dim]  - {escape(_n)}[/dim]")
+                    console.print("[dim]  /peer-on per autorizzare la comunicazione continua, "
+                                  "/peer-off per restare in pausa.[/dim]")
+            except Exception:
+                pass  # il canale non deve mai bloccare il prompt
+
             cm = get_current_model()
             prompt_label = "Astral (Auto)" if cm == "auto" else cm
             _prompt_color = _SESSION_COLORS[_session_slot % len(_SESSION_COLORS)]
@@ -213,7 +254,7 @@ def run_repl():
                     f"  [bold cyan]/execlog[/] [n]   log esecuzioni tool\n"
                     f"  [bold cyan]/usage[/] [g]     costi [dim]--csv | prices[/]  |  [bold cyan]/model[/] <nome>\n\n"
                     f"[bold]AGENTI[/]\n"
-                    f"  [bold cyan]/peer[/]        finestra chat peer-to-peer (parallela)\n"
+                    f"  [bold cyan]/peer[/]        stato canale relay  |  [bold cyan]/peer-on[/] [dim][peer][/]  |  [bold cyan]/peer-off[/]\n"
                     f"  [bold cyan]/verdict[/] [lite] <quesito>   giudici anonimi\n"
                     f"  [bold cyan]/subagent[/] scout|review [file]   subagent detached\n\n"
                     f"[dim]Scrivi una richiesta libera oppure usa i comandi sopra.[/]",
@@ -353,19 +394,61 @@ def run_repl():
                 console.print(stats)
                 continue
 
-            # --- /peer: finestra figlia di chat peer-to-peer (detached) ---
-            if lower_input in ("/peer", "/peer-window"):
+            # --- /peer: canale relay tra sessioni Astral (madre <-> figli) ---
+            if lower_input in ("/peer", "/peer-status"):
                 try:
-                    from ui import peer_window as _pw
-                    _info = _pw.open_window()
-                    if _info.get("error"):
-                        console.print(ui_error(f"[!] finestra peer: {_info['error']}"))
-                    elif _info.get("already_open"):
-                        console.print(f"[dim][*] finestra peer gia' aperta (pid {_info['pid']})[/dim]")
+                    from core import relay_channel as _rc
+                    _st = _rc.get_state()
+                    _ch = _rc.child_status()
+                    _pend = _rc.pending_count()
+                    _own = _rc.owner_info()
+                    _own_txt = "questa sessione" if _own.get("mine") else (
+                        f"altra sessione (pid {_own['pid']})" if _own.get("alive")
+                        else "libero")
+                    console.print(
+                        f"[dim][peer] canale={_st['mode']} peer={_st.get('peer') or '-'} "
+                        f"proprietario={_own_txt} "
+                        f"figlio={'vivo pid %s' % _ch['pid'] if _ch['running'] else 'spento'} "
+                        f"in attesa={_pend}[/dim]")
+                except Exception as _e_pc:
+                    console.print(ui_error(f"[!] /peer errore: {type(_e_pc).__name__}: {_e_pc}"))
+                continue
+
+            if lower_input.startswith("/peer-on"):
+                try:
+                    from core import relay_channel as _rc
+                    _parts = user_input.split()
+                    _peer = _parts[1] if len(_parts) > 1 else None
+                    _rc.set_state(_rc.STATE_ACTIVE, peer=_peer, reason="utente: /peer-on")
+                    _res = _rc.ensure_channel(peer=_peer, manual=True)
+                    if _res.get("error"):
+                        console.print(ui_error(f"[!] /peer-on: {_res['error']}"))
                     else:
-                        console.print(f"[dim][*] finestra peer avviata (pid {_info['pid']})[/dim]")
-                except Exception as _e_pw:
-                    console.print(ui_error(f"[!] /peer errore: {type(_e_pw).__name__}: {_e_pw}"))
+                        # Il bridge LAN (porta HTTP) deve essere di questa
+                        # sessione come il canale relay: il vecchio padrone
+                        # resta attivo ma non riceve piu' i messaggi.
+                        try:
+                            from tools import peer_bridge as _pb_on
+                            _srv = _pb_on.start_server()
+                            if _srv.get("error"):
+                                console.print(f"[dim][peer] bridge non avviato: "
+                                              f"{_srv['error']}[/dim]")
+                        except Exception:
+                            pass
+                        console.print(f"[dim][peer] canale ATTIVO verso {_peer or 'default'} "
+                                      f"in questa sessione (figlio pid={_res.get('pid')}); "
+                                      f"legato al solo processo {os.getpid()}.[/dim]")
+                except Exception as _e_pc:
+                    console.print(ui_error(f"[!] /peer-on errore: {type(_e_pc).__name__}: {_e_pc}"))
+                continue
+
+            if lower_input in ("/peer-off", "/peer-stop"):
+                try:
+                    from core import relay_channel as _rc
+                    _rc.set_state(_rc.STATE_IDLE, reason="utente: /peer-off")
+                    console.print("[dim][peer] canale in pausa: i messaggi restano in attesa.[/dim]")
+                except Exception as _e_pc:
+                    console.print(ui_error(f"[!] /peer-off errore: {type(_e_pc).__name__}: {_e_pc}"))
                 continue
 
             # --- /scrape: scraper interno eccellente (tools_scrape) ---

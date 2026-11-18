@@ -780,6 +780,37 @@ def _h_peer_status(args):
     return pb.status()
 
 
+def _h_relay_status(args):
+    """Stato del canale relay (processo proprietario + figlio headless)."""
+    from core import relay_channel as rc
+    own = rc.owner_info()
+    return {"state": rc.get_state(), "child": rc.child_status(),
+            "pending": rc.pending_count(),
+            "session": rc.session_id(),
+            "owner": own,
+            "owner_is_this_process": bool(own.get("mine")),
+            "note": ("il canale relay e' legato al solo processo che lo ha "
+                     "creato; per usarlo in questa sessione serve /peer-on")}
+
+
+def _h_relay_send(args):
+    """Accoda un messaggio verso un'altra sessione Astral."""
+    from core import relay_channel as rc
+    a = args or {}
+    if not a.get("text"):
+        return {"error": "serve 'text'"}
+    return rc.enqueue_send(a["text"], a.get("to"), a.get("kind") or "chat", a.get("meta"))
+
+
+def _h_relay_inbox(args):
+    """Legge i messaggi in attesa senza consumarli (anteprima)."""
+    from core import relay_channel as rc
+    st = rc.get_state()
+    evs = rc.collect_events(consume=False)
+    return {"mode": st.get("mode"), "pending": rc.pending_count(),
+            "events": evs}
+
+
 def _h_peer_start(args):
     from tools import peer_bridge as pb
     return pb.start_server((args or {}).get("port"))
@@ -826,12 +857,6 @@ def _h_peer_inbox(args):
     return pb.fetch_messages(consume=a.get("consume", True))
 
 
-def _h_peer_window(args):
-    """Apre la finestra figlia di chat peer (processo detached, idempotente)."""
-    from ui import peer_window as pw
-    return pw.open_window()
-
-
 def _h_peer_file(args):
     from tools import peer_bridge as pb
     a = args or {}
@@ -864,6 +889,38 @@ def _h_peer_peers(args):
 
 
 def _register_peer_bridge():
+    _register("relay_status", "peer",
+              "Stato del canale relay tra sessioni Astral (madre + figlio headless).",
+              {"type": "function", "function": {
+                  "name": "relay_status",
+                  "description": ("Riporta lo stato del canale relay: modalita' (idle/active), "
+                                  "peer corrente, salute del figlio headless e numero di messaggi "
+                                  "in attesa."),
+                  "parameters": {"type": "object", "properties": {}}}},
+              _h_relay_status, timeout=15.0, read_only=True)
+    _register("relay_send", "peer",
+              "Invia un messaggio a un'altra sessione Astral tramite il canale relay.",
+              {"type": "function", "function": {
+                  "name": "relay_send",
+                  "description": ("Accoda un messaggio per un'altra sessione Astral. Il trasporto e' "
+                                  "delegato al figlio headless, quindi la chiamata ritorna subito. "
+                                  "Usalo per rispondere ai messaggi arrivati dal canale peer."),
+                  "parameters": {"type": "object", "properties": {
+                      "text": {"type": "string", "description": "Testo del messaggio"},
+                      "to": {"type": "string", "description": "node_id destinatario (default: peer corrente)"},
+                      "kind": {"type": "string", "description": "chat|task|result (default chat)"},
+                      "meta": {"type": "object", "description": "Metadati opzionali"}},
+                      "required": ["text"]}}},
+              _h_relay_send, timeout=20.0, read_only=False)
+    _register("relay_inbox", "peer",
+              "Anteprima dei messaggi in attesa sul canale relay, senza consumarli.",
+              {"type": "function", "function": {
+                  "name": "relay_inbox",
+                  "description": ("Elenca i messaggi arrivati da altre sessioni Astral senza rimuoverli "
+                                  "dalla coda. Utile per controllare se ci sono novita' prima di "
+                                  "attivare il canale."),
+                  "parameters": {"type": "object", "properties": {}}}},
+              _h_relay_inbox, timeout=15.0, read_only=True)
     _register("peer_status", "peer",
               "Stato del bridge LAN: node_id, porta, IP locali, messaggi in attesa, peer registrati.",
               {"type": "function", "function": {
@@ -988,16 +1045,6 @@ def _register_peer_bridge():
                       "node": {"type": "string", "description": "Filtro per pull"},
                       "extra": {"type": "object", "description": "Dati aggiuntivi da condividere"}}}}},
               _h_peer_context, timeout=60.0, read_only=False)
-    _register("peer_window", "peer",
-              "Apre una finestra figlia di chat peer che resta attiva in parallelo alla console.",
-              {"type": "function", "function": {
-                  "name": "peer_window",
-                  "description": ("Apre una finestra figlia detached con la chat peer-to-peer: legge i "
-                                  "messaggi in arrivo e permette di inviarne senza sbloccare il REPL. "
-                                  "Resta aperta finche' l'utente non la chiude; idempotente (se e' gia' "
-                                  "aperta ritorna il PID esistente)."),
-                  "parameters": {"type": "object", "properties": {}}}},
-              _h_peer_window, timeout=20.0, read_only=False)
 
 
 def _register_knowmap():

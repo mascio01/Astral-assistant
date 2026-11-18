@@ -484,7 +484,15 @@ def _start_peer_bridge():
     porta fallisce (firewall, porta occupata) la sessione parte comunque.
     """
     try:
+        from core import relay_channel as _rc
         from tools import peer_bridge as _pb
+        own = _rc.claim_ownership()
+        if not own.get("owner"):
+            _pid = (own.get("owner_info") or {}).get("pid")
+            console.print("[dim][peer] bridge/canale relay gia' in uso dal processo "
+                          "%s: questa sessione non apre porte. /peer-on per "
+                          "prenderne il controllo.[/dim]" % _pid)
+            return
         info = _pb.start_server()
         if info.get("ok"):
             console.print("[dim][peer] bridge LAN attivo su porta %s (node %s)[/]"

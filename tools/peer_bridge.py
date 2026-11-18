@@ -215,6 +215,34 @@ def _auth_tokens(cfg):
     return toks
 
 
+_HASH_CACHE = {}
+
+
+def _sha256_cached(fp):
+    """sha256 di un file outbox, memoizzato su (path, mtime_ns, size)."""
+    import hashlib
+    try:
+        st = os.stat(fp)
+    except OSError:
+        return None
+    key = (fp, getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)), st.st_size)
+    hit = _HASH_CACHE.get(key)
+    if hit:
+        return hit
+    h = hashlib.sha256()
+    try:
+        with open(fp, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    digest = h.hexdigest()
+    for old in [k for k in _HASH_CACHE if k[0] == fp]:
+        _HASH_CACHE.pop(old, None)
+    _HASH_CACHE[key] = digest
+    return digest
+
+
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "AstralPeer/1.0"
@@ -284,15 +312,97 @@ class _Handler(BaseHTTPRequestHandler):
                     continue
             return self._send(200, {"messages": items[-50:]})
         if path.startswith("/file/"):
-            # /file/<nome> servito da outbox
-            name = _safe_name(path[len("/file/"):])
-            fp = os.path.join(BASE, "outbox", cfg["node_id"], name)
-            if not os.path.isfile(fp):
-                return self._send(404, {"error": "file non trovato", "name": name})
-            with open(fp, "rb") as f:
-                data = f.read()
-            return self._send(200, raw=data, ctype="application/octet-stream")
-        return self._send(404, {"error": "endpoint sconosciuto"})
+            # /file/<nome> servito da outbox, con Range e metadati negli header
+            return self._serve_file(cfg, path[len("/file/"):], head_only=False)
+
+    def do_HEAD(self):
+        """HEAD = stessi header di GET /file/, senza body (PEER_RULES §2)."""
+        cfg = self._auth()
+        if not cfg:
+            return
+        path = self.path.split("?")[0]
+        if path.startswith("/file/"):
+            return self._serve_file(cfg, path[len("/file/"):], head_only=True)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.send_header("X-Astral-Peer", cfg.get("node_id", ""))
+            self.end_headers()
+        except Exception:
+            pass
+
+    def _serve_file(self, cfg, raw_name, head_only=False):
+        """Serve un file outbox: Range bytes=a-b|a-|-n + X-Astral-Sha256/Size."""
+        name = _safe_name(raw_name)
+        fp = os.path.join(BASE, "outbox", cfg["node_id"], name) if name else None
+        if not fp or not os.path.isfile(fp):
+            if head_only:
+                try:
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                except Exception:
+                    pass
+                return
+            return self._send(404, {"error": "file non trovato", "name": raw_name})
+
+        size = os.path.getsize(fp)
+        digest = _sha256_cached(fp) or ""
+        start, end, partial = 0, max(size - 1, 0), False
+        rng = (self.headers.get("Range") or "").strip()
+        if rng.lower().startswith("bytes=") and size > 0:
+            spec = rng[6:].split(",")[0].strip()
+            try:
+                a, _, b = spec.partition("-")
+                if a.strip():
+                    start = int(a)
+                    end = int(b) if b.strip() else size - 1
+                else:
+                    start = max(0, size - int(b))
+                    end = size - 1
+                # RFC 7233: start oltre la fine del file => range insoddisfacibile
+                partial = start < size and end >= start
+                if not partial:
+                    raise ValueError("range fuori dal file")
+                end = min(end, size - 1)
+                start = max(0, start)
+            except (ValueError, TypeError):
+                start, end, partial = 0, size - 1, False
+            if not partial:
+                try:
+                    self.send_response(416)
+                    self.send_header("Content-Range", "bytes */%d" % size)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                except Exception:
+                    pass
+                return
+
+        length = (end - start + 1) if size > 0 else 0
+        try:
+            self.send_response(206 if partial else 200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(length))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("X-Astral-Sha256", digest)
+            self.send_header("X-Astral-Size", str(size))
+            self.send_header("X-Astral-Peer", cfg.get("node_id", ""))
+            if partial:
+                self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+            self.end_headers()
+            if head_only or length == 0:
+                return
+            with open(fp, "rb") as fh:
+                fh.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = fh.read(min(262144, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except Exception:
+            pass
 
     def do_POST(self):
         cfg = self._auth()
